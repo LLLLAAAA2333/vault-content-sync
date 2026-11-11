@@ -1,4 +1,4 @@
-import { FileSystemAdapter, type Plugin } from "obsidian";
+import { FileSystemAdapter, normalizePath, type Plugin } from "obsidian";
 import {
 	LocalStore,
 	PlainEngine,
@@ -7,13 +7,14 @@ import {
 	PlainSettings,
 	WebDavStore,
 } from "@/sync";
+import { savedCollectionUrl } from "./sync/connection";
 export async function registerPlain(plugin: Plugin) {
 	const raw = await plugin.loadData();
 	const host: PlainHost = {
 		app: plugin.app,
 		plugin,
 		settings: {
-			url: typeof raw?.url === "string" ? raw.url : "",
+			url: savedCollectionUrl(raw?.url),
 			username: typeof raw?.username === "string" ? raw.username : "",
 			mock: raw?.mock === true,
 		},
@@ -29,13 +30,15 @@ export async function registerPlain(plugin: Plugin) {
 			if (!(adapter instanceof FileSystemAdapter))
 				throw new Error("Desktop filesystem required");
 			const root = adapter.getBasePath();
+			const excludedRoots = [normalizePath(plugin.app.vault.configDir)];
 			return new PlainEngine(
-				new LocalStore(root),
+				new LocalStore(root, excludedRoots),
 				new WebDavStore({
 					url: host.settings.url,
 					username: host.settings.username,
 					password: host.password,
 					isolatedMock: host.settings.mock,
+					excludedRoots,
 				}),
 				root,
 			);
@@ -44,12 +47,14 @@ export async function registerPlain(plugin: Plugin) {
 	plugin.addSettingTab(new PlainSettings(host));
 	plugin.addCommand({
 		id: "preview",
-		name: "完整核验并预览Vault Weave",
+		name: "完整核验并预览",
 		callback: () => {
 			host.openPreview();
 		},
 	});
-	plugin.addRibbonIcon("folder-sync", "Vault Weave", () => host.openPreview());
+	plugin.addRibbonIcon("folder-sync", "Vault Content Sync", () =>
+		host.openPreview(),
+	);
 	plugin.register(() => {
 		host.password = "";
 	});

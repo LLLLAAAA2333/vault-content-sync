@@ -36,6 +36,7 @@ export interface Listing {
 	folders: string[];
 }
 export interface Store {
+	readonly excludedRoots?: readonly string[];
 	identity: string;
 	list(): Promise<Listing>;
 	read(path: string, archive?: string): Promise<Seen>;
@@ -93,7 +94,15 @@ export function safePath(path: string): string {
 		throw new Error("Unsafe relative path");
 	return path;
 }
-export function excluded(path: string): boolean {
+export function excluded(path: string, roots: readonly string[] = []): boolean {
+	const key = path.normalize("NFC").toLowerCase();
+	if (
+		roots.some((root) => {
+			const name = root.normalize("NFC").toLowerCase();
+			return key === name || key.startsWith(`${name}/`);
+		})
+	)
+		return true;
 	return path
 		.split("/")
 		.some((p) => EXCLUDED.some((x) => x.toLowerCase() === p.toLowerCase()));
@@ -115,14 +124,14 @@ export function classify(
 export async function scan(store: Store): Promise<Scan> {
 	const result: Scan = {
 		files: Object.create(null),
-		excluded: [],
+		excluded: [...(store.excludedRoots ?? [])],
 		folders: [],
 		errors: Object.create(null),
 		bytes: 0,
 	};
 	try {
 		const listing = await store.list();
-		result.excluded = listing.excluded;
+		result.excluded = [...new Set([...result.excluded, ...listing.excluded])];
 		result.folders = listing.folders;
 		let cursor = 0;
 		await Promise.all(
@@ -185,11 +194,7 @@ export function plan(state: State, local: Scan, remote: Scan): Preview {
 			) ||
 			local.folders.includes(path) ||
 			remote.folders.includes(path);
-		const isExcluded =
-			excluded(path) ||
-			[...local.excluded, ...remote.excluded].some(
-				(p) => path === p || path.startsWith(`${p}/`),
-			);
+		const isExcluded = excluded(path, [...local.excluded, ...remote.excluded]);
 		return {
 			path,
 			local: l,

@@ -1,9 +1,10 @@
 {
-	"id": "vault-weave",
-	"name": "Vault Weave",
-	"version": "0.4.0",
-	"minAppVersion": "1.13.0",
-	"description": "Verify WebDAV note content, preserve local metadata, and resolve text conflicts on desktop.",
+	"id": "vault-content-sync",
+	"name": "Vault Content Sync",
+	"version": "0.4.1",
+	"minAppVersion": "1.14.4",
+	"description": "Compare local notes with a WebDAV folder and inspect content conflicts without changing your files.",
 	"author": "LLLLAAAA2333",
+	"authorUrl": "https://github.com/LLLLAAAA2333",
 	"isDesktopOnly": true
 }

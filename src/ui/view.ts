@@ -6,6 +6,7 @@ import {
 	PluginSettingTab,
 	Setting,
 } from "obsidian";
+import { collectionUrl } from "../sync/connection";
 import type { PlainEngine } from "../sync/engine";
 import { EXCLUDED, type Preview, type Row } from "../sync/model";
 import { modalHint, openConfirmModal, renderModalHead } from "./modal";
@@ -40,7 +41,7 @@ export class PlainPreview extends Modal {
 	onOpen() {
 		renderModalHead(this, {
 			icon: "folder-sync",
-			title: "Vault Weave",
+			title: "Vault Content Sync",
 			sub: "完整核验内容 · updated 仅保留本机",
 		});
 		this.modalEl.addClass("ocs-modal");
@@ -201,7 +202,7 @@ export class PlainPreview extends Modal {
 		const exclusions = this.contentEl.createEl("details");
 		exclusions.createEl("summary", { text: "默认排除规则" });
 		exclusions.createEl("p", {
-			text: `各层级排除 ${EXCLUDED.join("、")}，以及符号链接；其余扩展名均参与同步。`,
+			text: `各层级排除 ${EXCLUDED.join("、")}；另排除当前配置目录 ${this.app.vault.configDir} 及其内容，以及符号链接。其余扩展名均参与同步。`,
 		});
 		this.status = this.contentEl.createDiv({
 			cls: "ocs-status",
@@ -284,20 +285,29 @@ export class PlainSettings extends PluginSettingTab {
 	}
 	display() {
 		this.containerEl.empty();
-		this.containerEl.createEl("h2", { text: "Vault Weave · 实验版" });
 		this.containerEl.createEl("p", {
 			text: "默认不连接、不自动同步。填写明确的 WebDAV 资料库目录，再手动预览。密码仅在本次插件会话内保存。",
 		});
 		new Setting(this.containerEl)
 			.setName("WebDAV 目录 URL")
-			.setDesc("使用已确认的资料库映射；不会从本地路径推导。")
+			.setDesc("使用 HTTPS 地址；凭据在下方单独填写。无效地址不会保存。")
 			.addText((t) =>
 				t
 					.setValue(this.host.settings.url)
-					.setPlaceholder("https://…/seafdav/资料库/测试目录/")
+					.setPlaceholder("https://dav.example.com/notes/")
 					.onChange((v) => {
-						this.host.settings.url = v.trim();
-						void this.host.save();
+						try {
+							const value = v.trim();
+							this.host.settings.url = value ? collectionUrl(value).href : "";
+							t.inputEl.setCustomValidity("");
+							t.inputEl.removeAttribute("aria-invalid");
+							void this.host.save();
+						} catch {
+							t.inputEl.setCustomValidity(
+								"请输入不含凭据、查询参数或片段的 WebDAV 目录 URL",
+							);
+							t.inputEl.setAttribute("aria-invalid", "true");
+						}
 					}),
 			);
 		new Setting(this.containerEl).setName("用户名").addText((t) =>
@@ -330,7 +340,7 @@ export class PlainSettings extends PluginSettingTab {
 					.onClick(() => new PlainPreview(this.host).open()),
 			);
 		this.containerEl.createEl("p", {
-			text: `排除：${EXCLUDED.join("、")}、符号链接。恢复内容位于 .plain-sync，首版不自动清理。`,
+			text: `排除：${[...new Set([...EXCLUDED, this.app.vault.configDir])].join("、")}、符号链接。恢复内容位于 .plain-sync，首版不自动清理。`,
 		});
 	}
 }

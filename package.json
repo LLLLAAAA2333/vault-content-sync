@@ -1,6 +1,6 @@
 {
-	"name": "obsidian-vault-weave",
-	"version": "0.4.0",
+	"name": "vault-content-sync",
+	"version": "0.4.1",
 	"description": "Desktop Obsidian plugin for WebDAV content verification and conservative three-way text merging",
 	"private": true,
 	"type": "module",
@@ -18,7 +18,8 @@
 		"test": "vitest run && node --test tools/*.test.mjs",
 		"demo": "node tools/demo.mjs",
 		"e2e": "node tools/obsidian-e2e.mjs",
-		"probe": "node tools/probe.mjs"
+		"probe": "node tools/probe.mjs",
+		"check:release": "pnpm check && node tools/check-release.mjs"
 	},
 	"dependencies": {
 		"@jest/diff-sequences": "30.5.0",

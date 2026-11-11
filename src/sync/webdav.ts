@@ -4,6 +4,7 @@ import * as fs from "node:fs/promises";
 import * as http from "node:http";
 import * as https from "node:https";
 import type { Readable } from "node:stream";
+import { collectionUrl, isLoopback } from "./connection";
 import { digest, smallText } from "./files";
 import {
 	excluded,
@@ -18,6 +19,7 @@ export interface DavOptions {
 	username?: string;
 	password?: string;
 	isolatedMock?: boolean;
+	excludedRoots?: readonly string[];
 }
 export function request(
 	url: URL,
@@ -66,28 +68,14 @@ export async function responseText(
 }
 export class WebDavStore implements Store {
 	readonly root: URL;
+	readonly excludedRoots: readonly string[];
 	readonly identity: string;
 	readonly headers: Record<string, string>;
 	writable = false;
 	constructor(options: DavOptions) {
-		this.root = new URL(
-			options.url.endsWith("/") ? options.url : `${options.url}/`,
-		);
-		if (
-			this.root.username ||
-			this.root.password ||
-			this.root.search ||
-			this.root.hash ||
-			!["https:", "http:"].includes(this.root.protocol)
-		)
-			throw new Error(
-				"Use a plain WebDAV collection URL; credentials are separate",
-			);
-		const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(
-			this.root.hostname,
-		);
-		if (this.root.protocol !== "https:" && !loopback)
-			throw new Error("HTTPS required outside loopback");
+		this.root = collectionUrl(options.url);
+		this.excludedRoots = (options.excludedRoots ?? []).map(safePath);
+		const loopback = isLoopback(this.root);
 		this.identity = `dav:${this.root.href}:${createHash("sha256")
 			.update(options.username ?? "")
 			.digest("hex")}`;
@@ -100,6 +88,7 @@ export class WebDavStore implements Store {
 	}
 	url(path: string) {
 		safePath(path);
+		if (excluded(path, this.excludedRoots)) throw new Error("Excluded target");
 		return new URL(
 			path.split("/").map(encodeURIComponent).join("/"),
 			this.root,
@@ -222,7 +211,7 @@ export class WebDavStore implements Store {
 				)
 					throw new Error("Invalid Depth 1 response");
 				unique.add(path);
-				if (excluded(path)) {
+				if (excluded(path, this.excludedRoots)) {
 					result.excluded.push(path);
 					continue;
 				}
@@ -245,7 +234,7 @@ export class WebDavStore implements Store {
 			throw new Error(
 				"Remote writes disabled: atomic server guarantees not established",
 			);
-		if (excluded(path)) throw new Error("Excluded target");
+		if (excluded(path, this.excludedRoots)) throw new Error("Excluded target");
 		if (expected && !/^"[^"\r\n]+"$/.test(expected.version))
 			throw new Error("Strong ETag required");
 		if (!source && !expected) return;

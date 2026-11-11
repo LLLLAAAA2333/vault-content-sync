@@ -1,22 +1,25 @@
 {
-	"project": "Vault Weave",
-	"version": "0.4.0",
-	"pluginId": "vault-weave",
+	"project": "Vault Content Sync",
+	"version": "0.4.1",
+	"pluginId": "vault-content-sync",
 	"date": "2026-11-11",
+	"minimumObsidianVersion": "1.14.4",
 	"checks": {
 		"frozenInstall": "passed",
 		"build": "passed",
 		"typecheck": "passed",
 		"moduleBoundaries": "passed",
-		"unitTests": 118,
+		"releaseAssetsAndEmbeddedLicenses": "passed",
+		"unitTests": 130,
 		"toolFaultTests": 2,
 		"twoDeviceDemo": "passed",
 		"isolatedObsidian": {
 			"passed": true,
-			"pluginId": "vault-weave",
+			"pluginId": "vault-content-sync",
 			"obsidian": "1.14.4 (visible app title)",
 			"checks": [
 				"preview creates no metadata",
+				"host configuration directory is excluded on both sides",
 				"native preview and execute controls",
 				"cancel confirmation produces zero writes",
 				"read-only text comparison and narrow desktop layout",
@@ -36,12 +39,25 @@
 		},
 		"lint": {
 			"errors": 0,
-			"warnings": 26,
+			"warnings": 27,
 			"infos": 2
+		},
+		"productionDependencyAudit": {
+			"info": 0,
+			"low": 0,
+			"moderate": 0,
+			"high": 0,
+			"critical": 0
 		}
+	},
+	"review": {
+		"officialCommunityReview": "not submitted",
+		"nameAndId": "No exact match in the official public list at review time; final uniqueness requires submission",
+		"provenanceClassification": "requires official determination"
 	},
 	"dataScope": "Synthetic vaults under runtime/ and localhost mock WebDAV only",
 	"productionVaultAccess": false,
 	"productionRemoteAccess": false,
-	"stateFormat": 2
+	"stateFormat": 2,
+	"bundleSha256": "251113515fecdb275edcd9487b23e06550787d8a93bfd25daa22cf5a8a7e77d9"
 }

@@ -160,7 +160,12 @@ export async function textFile(
 export class LocalStore implements Store {
 	identity: string;
 	writable = true;
-	constructor(readonly root: string) {
+	readonly excludedRoots: readonly string[];
+	constructor(
+		readonly root: string,
+		excludedRoots: readonly string[] = [],
+	) {
+		this.excludedRoots = excludedRoots.map(safePath);
 		this.root = resolve(root);
 		this.identity = `local:${this.root}`;
 	}
@@ -208,7 +213,7 @@ export class LocalStore implements Store {
 				{ withFileTypes: true },
 			)) {
 				const p = dir ? `${dir}/${item.name}` : item.name;
-				if (excluded(p) || item.isSymbolicLink()) {
+				if (excluded(p, this.excludedRoots) || item.isSymbolicLink()) {
 					result.excluded.push(p);
 					continue;
 				}
@@ -224,9 +229,11 @@ export class LocalStore implements Store {
 		return result;
 	}
 	async read(path: string, archive?: string) {
+		if (excluded(path, this.excludedRoots)) throw new Error("Excluded target");
 		return hashFile(await this.path(path), archive, path);
 	}
 	async text(path: string, expected: Seen) {
+		if (excluded(path, this.excludedRoots)) throw new Error("Excluded target");
 		return textFile(await this.path(path), expected);
 	}
 	async parked(id: string) {
@@ -238,7 +245,7 @@ export class LocalStore implements Store {
 		source: string | null,
 		id: string,
 	) {
-		if (excluded(path)) throw new Error("Excluded target");
+		if (excluded(path, this.excludedRoots)) throw new Error("Excluded target");
 		const target = await this.path(path, true);
 		const displaced = await this.path(
 			`${META}/displaced/${safePath(id)}`,

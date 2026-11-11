@@ -16,13 +16,13 @@ import { startMock } from "./mock-server.mjs";
 const root = resolve("runtime", `obsidian-${Date.now()}`),
 	vault = join(root, "vault"),
 	profile = join(root, "profile");
-const plugin = join(vault, ".obsidian/plugins/vault-weave");
+const plugin = join(vault, ".obsidian/plugins/vault-content-sync");
 await mkdir(plugin, { recursive: true });
 await mkdir(profile, { recursive: true });
 const artifactRoot = join("artifacts", `obsidian-${Date.now()}`);
 await mkdir(artifactRoot, { recursive: true });
 for (const file of ["main.js", "styles.css", "manifest.json"])
-	await copyFile(join("dist/vault-weave", file), join(plugin, file));
+	await copyFile(join("dist/vault-content-sync", file), join(plugin, file));
 const server = await startMock();
 let child, browser, page, mainPage;
 await writeFile(
@@ -31,7 +31,7 @@ await writeFile(
 );
 await writeFile(
 	join(vault, ".obsidian/community-plugins.json"),
-	JSON.stringify(["vault-weave"]),
+	JSON.stringify(["vault-content-sync"]),
 );
 await writeFile(
 	join(profile, "obsidian.json"),
@@ -93,14 +93,14 @@ async function start() {
 			await page.evaluate(async (expected) => {
 				if (app.vault.adapter.getBasePath() !== expected)
 					throw new Error("Wrong test vault");
-				await app.plugins.enablePluginAndSave("vault-weave");
+				await app.plugins.enablePluginAndSave("vault-content-sync");
 			}, vault);
 
 		if (
 			await page.evaluate(
 				() =>
 					typeof app !== "undefined" &&
-					Boolean(app?.plugins?.plugins?.["vault-weave"]?.host),
+					Boolean(app?.plugins?.plugins?.["vault-content-sync"]?.host),
 			)
 		)
 			break;
@@ -111,7 +111,9 @@ async function start() {
 		vault,
 	);
 	if (
-		!(await page.evaluate(() => Boolean(app.plugins.plugins["vault-weave"])))
+		!(await page.evaluate(() =>
+			Boolean(app.plugins.plugins["vault-content-sync"]),
+		))
 	) {
 		await page.screenshot({
 			path: join(artifactRoot, "obsidian-boot-failure.png"),
@@ -148,7 +150,7 @@ async function confirmButton(name) {
 async function open() {
 	mainPage = page;
 	await mainPage.waitForFunction(() => app.workspace.layoutReady === true);
-	await mainPage.getByLabel("Vault Weave", { exact: true }).click();
+	await mainPage.getByLabel("Vault Content Sync", { exact: true }).click();
 	for (let i = 0; i < 100; i++) {
 		const candidates = browser.contexts().flatMap((c) => c.pages());
 		for (const candidate of candidates)
@@ -170,6 +172,16 @@ async function open() {
 try {
 	await start();
 	await open();
+	const configuration = await mainPage.evaluate(() => {
+		const engine = app.plugins.plugins["vault-content-sync"].host.engine();
+		return {
+			dir: app.vault.configDir,
+			local: engine.local.excludedRoots,
+			remote: engine.remote.excludedRoots,
+		};
+	});
+	assert.deepEqual(configuration.local, [configuration.dir]);
+	assert.deepEqual(configuration.remote, [configuration.dir]);
 	assert.equal((await readdir(vault)).includes(".plain-sync"), false);
 	await page.screenshot({ path: join(artifactRoot, "obsidian-preview.png") });
 	await page.setViewportSize({ width: 560, height: 700 });
@@ -324,10 +336,11 @@ try {
 		passed: true,
 		root,
 		vault,
-		pluginId: "vault-weave",
+		pluginId: "vault-content-sync",
 		obsidian: "1.14.4 (visible app title)",
 		checks: [
 			"preview creates no metadata",
+			"host configuration directory is excluded on both sides",
 			"native preview and execute controls",
 			"cancel confirmation produces zero writes",
 			"read-only text comparison and narrow desktop layout",

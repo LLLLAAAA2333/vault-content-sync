@@ -1,9 +1,9 @@
-# Vault Weave 0.4.0
+# Vault Content Sync 0.4.1
 
-当前代码和文档从独立快照开始，插件 ID 为 `vault-weave`。文本合并、updated 本机保留、原始版本留存、执行前核验及恢复已实现；同步状态保持 format 2 与 `.plain-sync/`。
+当前插件 ID 与仓库名均为 `vault-content-sync`，版本 0.4.1，最低 Obsidian 版本 1.14.4。文本合并、updated 本机保留、原始版本留存、执行前核验及恢复已实现；状态目录 `.plain-sync/` 和 format 2 不变。
 
-冻结安装、构建/类型/模块边界检查、118 项单元测试、2 项故障测试、双设备演示和隔离 Obsidian 验证均通过，结果见 `docs/VERIFICATION.md`。只在 `runtime/` 合成库和本机模拟 WebDAV 服务中执行写入测试，未向真实笔记库安装，未开放外部写入，未创建 Release 或提交社区市场。
+本版发布前修复：自定义配置目录在两端排除，URL 保存前拒绝凭据/查询参数，精简命令与设置页标题，内嵌许可证并增加 `pnpm check:release`。公开材料以只读预览功能为准，不声称外部写入已开放。
 
-下一阶段需另行决定：真实服务写入能力验证、正式库安装、社区目录资格与发布准备。当前不做 YAML 字段合并、字符级合并、移动识别或网络性能优化。
+验证与范围见 `docs/VERIFICATION.md`，提交要求检查见 `docs/RELEASE_REVIEW.md`，发布说明见 `docs/releases/0.4.1.md`。本次获用户明确授权创建 GitHub Release；不提交社区目录、不安装真实 Note 库、不连接真实 WebDAV。
 
-本地安装构建 `dist/vault-weave-0.4.0.zip`，校验清单 `dist/SHA256SUMS-0.4.0.txt`；这些产物不纳入 Git。
+GitHub 仓库：https://github.com/LLLLAAAA2333/vault-content-sync 。本地构建 `dist/vault-content-sync/`，发布文件与校验值在 `dist/release-0.4.1/`。正式目录审核、派生项目分类和真实服务写入验证仍需后续处理。
