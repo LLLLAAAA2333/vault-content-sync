@@ -63,11 +63,23 @@
 		"observedRelease": "0.4.1",
 		"observedFindings": 35,
 		"newReleaseScan": "pending",
-		"provenanceClassification": "No separate human policy determination asserted"
+		"provenanceClassification": "No separate human policy determination asserted",
+		"postPublicationObservation": "Community page still showed 0.4.1 immediately after 0.4.2 release; rescan pending"
 	},
 	"dataScope": "Synthetic vaults under runtime/ and localhost mock WebDAV only",
 	"productionVaultAccess": false,
 	"productionRemoteAccess": false,
 	"stateFormat": 2,
-	"bundleSha256": "9fafc1aafd26f36408065ca7c1646ef903872a6a26e8728fe785b782343698cf"
+	"bundleSha256": "9fafc1aafd26f36408065ca7c1646ef903872a6a26e8728fe785b782343698cf",
+	"release": {
+		"url": "https://github.com/LLLLAAAA2333/vault-content-sync/releases/tag/0.4.2",
+		"publishedAt": "2026-11-11T14:04:40Z",
+		"sourceCommit": "18ec7d6e594330120f399f0c72cc81f7c7b15f9f",
+		"workflowRun": "https://github.com/LLLLAAAA2333/vault-content-sync/actions/runs/43034665078",
+		"cloudChecks": "passed",
+		"localCloudBytesIdentical": true,
+		"attestationsVerified": ["main.js", "manifest.json", "styles.css"],
+		"downloadedBeforeAndAfterPublication": "byte-for-byte match",
+		"assets": ["main.js", "manifest.json", "styles.css"]
+	}
 }

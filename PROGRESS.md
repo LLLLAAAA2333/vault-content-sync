@@ -1,5 +1,9 @@
 # Vault Content Sync 0.4.2
 
+已于 2026-11-11 22:04（Asia/Shanghai）公开发布 [0.4.2 Release](https://github.com/LLLLAAAA2333/vault-content-sync/releases/tag/0.4.2)。tag/源码提交为 `18ec7d6e594330120f399f0c72cc81f7c7b15f9f`。[云端构建任务](https://github.com/LLLLAAAA2333/vault-content-sync/actions/runs/43034665078) 成功，三个安装文件与本机隔离实测版本逐字一致；签名、来源提交和摘要均核验通过。发布前后下载附件也逐字一致。
+
+发布后即时观察，社区仍显示 0.4.1，等待平台刷新与复扫。本轮 33 项已处理，文件系统能力和额外默认配置目录排除两项保留并披露，不声称官方提示已清零。
+
 当前入口仍为本目录，插件 ID/仓库名 `vault-content-sync`，最低 Obsidian 1.14.4。0.4.1 已有公开社区页面：https://community.obsidian.md/plugins/vault-content-sync 。原来“尚未提交/发布目录”的当前状态说明已过时，历史 0.4.1 审查记录保留。
 
 本轮按社区 35 项扫描逐项核对并修复：设置/JSON/错误/字节流边界校验、明确 Node 请求计时器、可搜索声明式设置、英文 README 和中文说明、贡献指南。保留直接文件系统能力和额外 `.obsidian` 排除并解释依据，没有通过隐藏规则或移除保护来追求零提示。完整清单：`docs/SCORECARD_REVIEW.md`。

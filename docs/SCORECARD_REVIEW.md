@@ -52,6 +52,8 @@ Observed on 2026-11-11 at the [public community scorecard](https://community.obs
 
 ## Validation and limits
 
+The [0.4.2 build](https://github.com/LLLLAAAA2333/vault-content-sync/actions/runs/43034665078) succeeded. All three attestations were verified against source commit `18ec7d6e594330120f399f0c72cc81f7c7b15f9f`; cloud, locally tested, draft-downloaded and published-downloaded files matched byte-for-byte. The new Release is public. Immediately afterward the community page still displayed 0.4.1, so a new scorecard result is pending.
+
 The pinned official `eslint-plugin-obsidianmd` recommended rules run via `pnpm lint:community`, including typed checks. No source rule was disabled or warning hidden. Its one remaining warning is item 28; filesystem capability and attestation findings are outside this local lint check. Local success does not predict the exact count or grade of the community's next scan.
 
 The 130 existing unit cases are retained. Twenty added cases cover malformed settings/checkpoints, field-level recovery validation, prototype-free dictionaries, bad stream chunks and safe error handling. A corrupt checkpoint leaves notes, remote data and the existing checkpoint unchanged (recovery may create empty journal subdirectories while acquiring its lock). The isolated app test now renders actual declarative settings, verifies indexed names/aliases, refuses a credential-bearing URL, and checks that saving settings does not persist the password or contact WebDAV. See [verification](VERIFICATION.md).
