@@ -1,0 +1,16 @@
+node_modules/
+/dist/
+/runtime/
+/artifacts/
+/coverage/
+.DS_Store
+.env
+.env.*
+!.env.example
+*.local.json
+*.private.json
+data.json
+.obsidian/
+.plain-sync/
+.sync_state.json
+.sync_trash/

@@ -1,0 +1,19 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"skipLibCheck": true,
+		"strict": true,
+		"noImplicitReturns": true,
+		"noUncheckedIndexedAccess": true,
+		"isolatedModules": true,
+		"allowSyntheticDefaultImports": true,
+		"allowJs": true,
+		"noEmit": true,
+		"forceConsistentCasingInFileNames": true,
+		"paths": { "@/*": ["./src/*"] },
+		"lib": ["DOM", "ES2022"]
+	},
+	"include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
+}
