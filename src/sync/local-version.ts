@@ -4,6 +4,7 @@ import { isMarkdown, MarkdownProjection } from "./content";
 import { digest, hashFile } from "./files";
 import { hashOf, type Seen } from "./model";
 import type { Journal } from "./state";
+import { byteChunks } from "./validation";
 
 export async function localVersion(
 	journal: Journal,
@@ -15,10 +16,12 @@ export async function localVersion(
 	if (local && hashOf(local) === desired) return local.hash;
 	if (!isMarkdown(path) || !local) return desired;
 	const prefix = new MarkdownProjection();
-	for await (const chunk of createReadStream(journal.blob(local.hash), {
-		highWaterMark: 64 * 1024,
-	})) {
-		prefix.push(Buffer.from(chunk));
+	for await (const chunk of byteChunks(
+		createReadStream(journal.blob(local.hash), {
+			highWaterMark: 64 * 1024,
+		}),
+	)) {
+		prefix.push(chunk);
 		if (prefix.done) break;
 	}
 	if (!prefix.done) prefix.push(Buffer.alloc(0), true);
@@ -26,10 +29,12 @@ export async function localVersion(
 	const transform = new MarkdownProjection(prefix.updated);
 	const sharedSource = journal.blob(desired);
 	async function* content() {
-		for await (const chunk of createReadStream(sharedSource, {
-			highWaterMark: 64 * 1024,
-		}))
-			yield transform.push(Buffer.from(chunk));
+		for await (const chunk of byteChunks(
+			createReadStream(sharedSource, {
+				highWaterMark: 64 * 1024,
+			}),
+		))
+			yield transform.push(chunk);
 		yield transform.push(Buffer.alloc(0), true);
 	}
 	const result = await digest(Readable.from(content()), journal.blobs);

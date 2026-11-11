@@ -1,5 +1,8 @@
+import { dictionary } from "./validation";
 export const META = ".plain-sync";
 export const EXCLUDED = [
+	// Defense in depth: also exclude old/default config folders on every device.
+	// The active (possibly custom) Vault.configDir is separately passed as excludedRoots.
 	".obsidian",
 	".claudian",
 	".git",
@@ -123,10 +126,10 @@ export function classify(
 }
 export async function scan(store: Store): Promise<Scan> {
 	const result: Scan = {
-		files: Object.create(null),
+		files: dictionary<Seen>(),
 		excluded: [...(store.excludedRoots ?? [])],
 		folders: [],
-		errors: Object.create(null),
+		errors: dictionary<string>(),
 		bytes: 0,
 	};
 	try {

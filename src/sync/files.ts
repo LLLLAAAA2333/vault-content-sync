@@ -12,12 +12,13 @@ import {
 	type Store,
 	safePath,
 } from "./model";
+import { byteChunks, hasErrorCode } from "./validation";
 
 export async function absent(path: string) {
 	try {
 		return await fs.lstat(path);
 	} catch (e) {
-		if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+		if (hasErrorCode(e, "ENOENT")) return null;
 		throw e;
 	}
 }
@@ -50,8 +51,8 @@ export async function digest(
 				captures.push({ temp, handle: await fs.open(temp, "wx", 0o600) });
 			}
 		}
-		for await (const chunk of stream) {
-			const bytes = Buffer.from(chunk);
+		for await (const chunk of byteChunks(stream)) {
+			const bytes = chunk;
 			raw.update(bytes);
 			size += bytes.length;
 			await captures[0]?.handle.writeFile(bytes);
@@ -71,11 +72,13 @@ export async function digest(
 		for (const [i, capture] of captures.entries()) {
 			await capture.handle.sync();
 			const version = i === 0 ? hash : syncHash!;
-			await fs.link(capture.temp, join(archive!, version)).catch(async (e) => {
-				if (e.code !== "EEXIST") throw e;
-				if ((await hashFile(join(archive!, version)))?.hash !== version)
-					throw new Error("Existing recovery version is corrupt");
-			});
+			await fs
+				.link(capture.temp, join(archive!, version))
+				.catch(async (e: unknown) => {
+					if (!hasErrorCode(e, "EEXIST")) throw e;
+					if ((await hashFile(join(archive!, version)))?.hash !== version)
+						throw new Error("Existing recovery version is corrupt");
+				});
 		}
 		if (archive) await syncDir(archive);
 		return { hash, size, ...(syncHash ? { syncHash } : {}) };
@@ -93,8 +96,8 @@ export async function hashFile(
 ): Promise<Seen> {
 	const h = await fs
 		.open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
-		.catch((e) => {
-			if (e.code === "ENOENT") return null;
+		.catch((e: unknown) => {
+			if (hasErrorCode(e, "ENOENT")) return null;
 			throw e;
 		});
 	if (!h) return null;
@@ -125,10 +128,10 @@ export async function smallText(
 ): Promise<string | null> {
 	const chunks: Buffer[] = [];
 	let size = 0;
-	for await (const chunk of stream) {
+	for await (const chunk of byteChunks(stream)) {
 		size += chunk.length;
 		if (size > 1024 * 1024) return null;
-		chunks.push(Buffer.from(chunk));
+		chunks.push(chunk);
 	}
 	const bytes = Buffer.concat(chunks);
 	if (createHash("sha256").update(bytes).digest("hex") !== expected?.hash)
@@ -186,8 +189,8 @@ export class LocalStore implements Store {
 			const current = join(this.root, ...parts.slice(0, i + 1));
 			let st = await absent(current);
 			if (!st && parents && i < parts.length - 1) {
-				await fs.mkdir(current).catch(async (e) => {
-					if (e.code !== "EEXIST") throw e;
+				await fs.mkdir(current).catch(async (e: unknown) => {
+					if (!hasErrorCode(e, "EEXIST")) throw e;
 				});
 				st = await fs.lstat(current);
 			}

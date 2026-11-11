@@ -171,6 +171,74 @@ async function open() {
 }
 try {
 	await start();
+	await page.waitForFunction(() => app.workspace.layoutReady === true);
+	await page.evaluate(() => {
+		app.setting.open();
+		app.setting.openTabById("vault-content-sync");
+	});
+	let settingsPage;
+	for (let i = 0; i < 100 && !settingsPage; i++) {
+		for (const candidate of browser.contexts().flatMap((c) => c.pages())) {
+			if (
+				await candidate
+					.getByPlaceholder("https://dav.example.com/notes/")
+					.isVisible()
+			)
+				settingsPage = candidate;
+		}
+		if (!settingsPage) await sleep(100);
+	}
+	assert.ok(settingsPage, "Declarative settings must render in the host");
+	const endpoint = settingsPage.getByPlaceholder(
+		"https://dav.example.com/notes/",
+	);
+	assert.equal(await endpoint.inputValue(), server.url);
+	await endpoint.fill("https://user:synthetic-secret@dav.example.test/notes/");
+	assert.equal(await endpoint.getAttribute("aria-invalid"), "true");
+	assert.equal(
+		await page.evaluate(
+			() => app.plugins.plugins["vault-content-sync"].host.settings.url,
+		),
+		server.url,
+	);
+	await endpoint.fill(server.url);
+	const password = settingsPage.locator('input[type="password"]');
+	await password.fill("synthetic-session-password");
+	assert.equal(
+		await page.evaluate(
+			() => app.plugins.plugins["vault-content-sync"].host.password,
+		),
+		"synthetic-session-password",
+	);
+	await page.evaluate(() =>
+		app.plugins.plugins["vault-content-sync"].host.save(),
+	);
+	const savedSettings = JSON.parse(
+		await readFile(join(plugin, "data.json"), "utf8"),
+	);
+	assert.deepEqual(savedSettings, {
+		url: server.url,
+		username: "",
+		mock: true,
+	});
+	const settingNames = await page.evaluate(() => {
+		const tab = app.setting.pluginTabs.find(
+			(tab) => tab.id === "vault-content-sync",
+		);
+		return tab.settingItems.map((item) => ({
+			name: item.name,
+			aliases: item.aliases,
+		}));
+	});
+	assert.ok(settingNames.some((item) => item.aliases?.includes("WebDAV")));
+	assert.ok(settingNames.some((item) => item.aliases?.includes("password")));
+	await settingsPage.screenshot({
+		path: join(artifactRoot, "obsidian-settings.png"),
+	});
+	await password.fill("");
+	await page.evaluate(() => app.setting.close());
+	assert.equal(server.counters.get, 0);
+	assert.equal(server.counters.put, 0);
 	await open();
 	const configuration = await mainPage.evaluate(() => {
 		const engine = app.plugins.plugins["vault-content-sync"].host.engine();
@@ -339,6 +407,9 @@ try {
 		pluginId: "vault-content-sync",
 		obsidian: "1.14.4 (visible app title)",
 		checks: [
+			"declarative settings render and are indexed with English search aliases",
+			"invalid endpoint is not saved and password remains session-only",
+			"opening settings creates no WebDAV requests",
 			"preview creates no metadata",
 			"host configuration directory is excluded on both sides",
 			"native preview and execute controls",

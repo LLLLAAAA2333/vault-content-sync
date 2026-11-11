@@ -5,6 +5,7 @@ import {
 	type Plugin,
 	PluginSettingTab,
 	Setting,
+	type SettingDefinitionItem,
 } from "obsidian";
 import { collectionUrl } from "../sync/connection";
 import type { PlainEngine } from "../sync/engine";
@@ -283,65 +284,94 @@ export class PlainSettings extends PluginSettingTab {
 	constructor(private host: PlainHost) {
 		super(host.app, host.plugin);
 	}
-	display() {
-		this.containerEl.empty();
-		this.containerEl.createEl("p", {
-			text: "默认不连接、不自动同步。填写明确的 WebDAV 资料库目录，再手动预览。密码仅在本次插件会话内保存。",
-		});
-		new Setting(this.containerEl)
-			.setName("WebDAV 目录 URL")
-			.setDesc("使用 HTTPS 地址；凭据在下方单独填写。无效地址不会保存。")
-			.addText((t) =>
-				t
-					.setValue(this.host.settings.url)
-					.setPlaceholder("https://dav.example.com/notes/")
-					.onChange((v) => {
-						try {
-							const value = v.trim();
-							this.host.settings.url = value ? collectionUrl(value).href : "";
-							t.inputEl.setCustomValidity("");
-							t.inputEl.removeAttribute("aria-invalid");
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		return [
+			{
+				name: "连接与预览",
+				desc: "默认不连接、不自动同步。填写明确的 WebDAV 资料库目录，再手动预览。密码仅在本次插件会话内保存。",
+			},
+			{
+				name: "WebDAV 目录 URL",
+				desc: "使用 HTTPS 地址；凭据在下方单独填写。无效地址不会保存。",
+				aliases: ["WebDAV", "URL", "server", "服务器"],
+				render: (setting) => {
+					setting.addText((t) =>
+						t
+							.setValue(this.host.settings.url)
+							.setPlaceholder("https://dav.example.com/notes/")
+							.onChange((v) => {
+								try {
+									const value = v.trim();
+									this.host.settings.url = value
+										? collectionUrl(value).href
+										: "";
+									t.inputEl.setCustomValidity("");
+									t.inputEl.removeAttribute("aria-invalid");
+									void this.host.save();
+								} catch {
+									t.inputEl.setCustomValidity(
+										"请输入不含凭据、查询参数或片段的 WebDAV 目录 URL",
+									);
+									t.inputEl.setAttribute("aria-invalid", "true");
+								}
+							}),
+					);
+				},
+			},
+			{
+				name: "用户名",
+				aliases: ["username", "account"],
+				render: (setting) => {
+					setting.addText((t) =>
+						t.setValue(this.host.settings.username).onChange((v) => {
+							this.host.settings.username = v;
 							void this.host.save();
-						} catch {
-							t.inputEl.setCustomValidity(
-								"请输入不含凭据、查询参数或片段的 WebDAV 目录 URL",
-							);
-							t.inputEl.setAttribute("aria-invalid", "true");
-						}
-					}),
-			);
-		new Setting(this.containerEl).setName("用户名").addText((t) =>
-			t.setValue(this.host.settings.username).onChange((v) => {
-				this.host.settings.username = v;
-				void this.host.save();
-			}),
-		);
-		new Setting(this.containerEl).setName("密码（仅本次会话）").addText((t) => {
-			t.inputEl.type = "password";
-			t.setValue(this.host.password).onChange((v) => {
-				this.host.password = v;
-			});
-		});
-		new Setting(this.containerEl)
-			.setName("隔离模拟服务写入")
-			.setDesc("仅用于随附的本机模拟服务；不会开放外部 WebDAV 写入。")
-			.addToggle((t) =>
-				t.setValue(this.host.settings.mock).onChange((v) => {
-					this.host.settings.mock = v;
-					void this.host.save();
-				}),
-			);
-		new Setting(this.containerEl)
-			.setName("查看同步计划")
-			.setDesc("每次完整读取文件内容，不使用时间戳缓存。")
-			.addButton((b) =>
-				b
-					.setButtonText("打开预览")
-					.onClick(() => new PlainPreview(this.host).open()),
-			);
-		this.containerEl.createEl("p", {
-			text: `排除：${[...new Set([...EXCLUDED, this.app.vault.configDir])].join("、")}、符号链接。恢复内容位于 .plain-sync，首版不自动清理。`,
-		});
+						}),
+					);
+				},
+			},
+			{
+				name: "密码（仅本次会话）",
+				aliases: ["password"],
+				render: (setting) => {
+					setting.addText((t) => {
+						t.inputEl.type = "password";
+						t.setValue(this.host.password).onChange((v) => {
+							this.host.password = v;
+						});
+					});
+				},
+			},
+			{
+				name: "隔离模拟服务写入",
+				desc: "仅用于随附的本机模拟服务；不会开放外部 WebDAV 写入。",
+				aliases: ["mock", "write"],
+				render: (setting) => {
+					setting.addToggle((t) =>
+						t.setValue(this.host.settings.mock).onChange((v) => {
+							this.host.settings.mock = v;
+							void this.host.save();
+						}),
+					);
+				},
+			},
+			{
+				name: "查看同步计划",
+				desc: "每次完整读取文件内容，不使用时间戳缓存。",
+				aliases: ["preview", "compare"],
+				render: (setting) => {
+					setting.addButton((b) =>
+						b
+							.setButtonText("打开预览")
+							.onClick(() => new PlainPreview(this.host).open()),
+					);
+				},
+			},
+			{
+				name: "排除规则",
+				desc: `排除：${[...new Set([...EXCLUDED, this.app.vault.configDir])].join("、")}、符号链接。恢复内容位于 .plain-sync，首版不自动清理。`,
+			},
+		];
 	}
 }
 

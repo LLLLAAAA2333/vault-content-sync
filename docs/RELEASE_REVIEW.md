@@ -1,3 +1,7 @@
+# 当前：0.4.2 社区扫描修复
+
+0.4.1 已有公开社区页面。其 35 项提示及 0.4.2 逐项处理见 [SCORECARD_REVIEW.md](SCORECARD_REVIEW.md)，验证见 [VERIFICATION.md](VERIFICATION.md)。下面保留发布 0.4.1 当时的核对事实，名称占用和“尚未提交”描述仅对应当时状态。
+
 # 0.4.1 发布前检查（2026-11-11）
 
 范围：本地代码与公开材料检查，以及 GitHub Release。没有登录社区目录提交，没有访问真实笔记库或真实 WebDAV。以下是本地核对结果，不是 Obsidian 官方审核结论。

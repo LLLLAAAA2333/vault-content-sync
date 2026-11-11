@@ -1,6 +1,6 @@
 {
 	"project": "Vault Content Sync",
-	"version": "0.4.1",
+	"version": "0.4.2",
 	"pluginId": "vault-content-sync",
 	"date": "2026-11-11",
 	"minimumObsidianVersion": "1.14.4",
@@ -10,7 +10,7 @@
 		"typecheck": "passed",
 		"moduleBoundaries": "passed",
 		"releaseAssetsAndEmbeddedLicenses": "passed",
-		"unitTests": 130,
+		"unitTests": 150,
 		"toolFaultTests": 2,
 		"twoDeviceDemo": "passed",
 		"isolatedObsidian": {
@@ -18,6 +18,9 @@
 			"pluginId": "vault-content-sync",
 			"obsidian": "1.14.4 (visible app title)",
 			"checks": [
+				"declarative settings render and are indexed with English search aliases",
+				"invalid endpoint is not saved and password remains session-only",
+				"opening settings creates no WebDAV requests",
 				"preview creates no metadata",
 				"host configuration directory is excluded on both sides",
 				"native preview and execute controls",
@@ -48,16 +51,23 @@
 			"moderate": 0,
 			"high": 0,
 			"critical": 0
+		},
+		"communityLint": {
+			"errors": 0,
+			"warnings": 1,
+			"remaining": "Extra .obsidian exclusion; actual configDir is separately protected"
 		}
 	},
 	"review": {
-		"officialCommunityReview": "not submitted",
-		"nameAndId": "No exact match in the official public list at review time; final uniqueness requires submission",
-		"provenanceClassification": "requires official determination"
+		"publicListing": "https://community.obsidian.md/plugins/vault-content-sync",
+		"observedRelease": "0.4.1",
+		"observedFindings": 35,
+		"newReleaseScan": "pending",
+		"provenanceClassification": "No separate human policy determination asserted"
 	},
 	"dataScope": "Synthetic vaults under runtime/ and localhost mock WebDAV only",
 	"productionVaultAccess": false,
 	"productionRemoteAccess": false,
 	"stateFormat": 2,
-	"bundleSha256": "251113515fecdb275edcd9487b23e06550787d8a93bfd25daa22cf5a8a7e77d9"
+	"bundleSha256": "9fafc1aafd26f36408065ca7c1646ef903872a6a26e8728fe785b782343698cf"
 }

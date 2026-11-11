@@ -1,34 +1,47 @@
 # Vault Content Sync
 
-WebDAV 内容核验与保守文本合并，面向 Obsidian 桌面端。
+[中文说明](README.zh-CN.md) · [Community listing](https://community.obsidian.md/plugins/vault-content-sync)
 
-Vault Content Sync 把本地笔记库与指定 WebDAV 目录进行完整内容比较，按共同版本识别修改与冲突。Markdown 顶层 `updated` 仅保留本机，正文、其他属性和附件参与比较。
+Compare notes and attachments in your Obsidian vault with a WebDAV folder by their content. Inspect conflicts and use a conservative line-level three-way merge when a common version exists. The local Markdown top-level `updated` field stays local; other properties and content are compared.
 
-**0.4.1 是实验版本：外部 WebDAV 仅开放只读预览。** 写入、冲突应用和中断恢复只在随附的本机隔离模拟服务中开放。默认不自动连接、不自动同步，尚未发布到 Obsidian 社区目录。
+**0.4.2 is experimental. External WebDAV connections provide read-only previews.** Uploads, downloads, applying conflict choices and recovery are only enabled for the bundled localhost simulation. Nothing connects or syncs automatically. The plugin has a public community listing; see its current scorecard for automated review results.
 
-## 能做什么
+## Features
 
-- 按内容核验笔记和附件，不依靠修改时间推断覆盖方向。
-- 用共同版本进行行级三方合并，保留原始换行、BOM 和未修改内容。
-- 相邻独立替换可以合并；重叠编辑、边界插入或定位不可靠时停止。
-- 写入路径具备前提核验、条件请求、原始版本留存和中断恢复；目前用于隔离验证。
-- 读取失败视为未知；没有共同版本时不自动合并不同内容或推断删除。
+- Verify original file bytes and shared content separately, without relying on modification times.
+- Inspect differences and conflicts across notes, YAML metadata and attachments.
+- Preserve line endings, BOM, unchanged content and the local `updated` field.
+- Merge independent line edits; stop on overlapping edits, ambiguous alignment or resource limits.
+- Retain original versions and check preconditions before simulated writes; recover interrupted operations.
+- Treat failed reads as unknown, never as a missing file. Different content without a common baseline is not automatically merged.
 
-## 安装与使用
+## Install and use
 
-需要 Obsidian 桌面端 **1.14.4 或更新版本**。当前仅在 macOS 实机验证；不支持移动端。
+Requires **Obsidian desktop 1.14.4+**. App testing has been performed on macOS only; mobile is unsupported. Start in an **isolated test vault**.
 
-1. 从 [GitHub Releases](https://github.com/LLLLAAAA2333/vault-content-sync/releases) 下载同一版本的 `main.js`、`manifest.json`、`styles.css`，放入**隔离测试库**的 `<配置目录>/plugins/vault-content-sync/`。默认配置目录是 `.obsidian`，自定义时以该库的实际配置目录为准。
-2. 在 Obsidian 的社区插件设置中启用 Vault Content Sync，打开插件设置。
-3. 填写已确认的 WebDAV **HTTPS 文件夹地址**，用户名和密码分别填写。服务要求账号时，使用您自己的服务账号；不需要 Vault Content Sync 账号，也没有付费功能。
-4. 点击侧栏 Vault Content Sync 图标，或运行“完整核验并预览”，再点击“完整核验 / 刷新预览”。首次运行只比较两端内容，不创建共同同步基线，也不修改笔记或远端文件。
-5. 有冲突时可点击“比较内容”。外部连接不会执行上传、下载、合并应用或恢复；“隔离模拟服务写入”开关也不会开放外部写入，只用于本机测试服务。
+1. Open the [community listing](https://community.obsidian.md/plugins/vault-content-sync) and choose **Add to Obsidian**, targeting your isolated test vault. Alternatively, download `main.js`, `manifest.json` and `styles.css` from the same [GitHub Release](https://github.com/LLLLAAAA2333/vault-content-sync/releases), and place them in `<your-config-directory>/plugins/vault-content-sync/` in that test vault.
+2. Enable **Vault Content Sync** in Community plugins and open its settings. Setting labels are currently in Chinese; they also have English search keywords such as `WebDAV`, `username` and `password`.
+3. Enter the exact WebDAV **HTTPS folder URL**, then your service username and password separately. Use your own WebDAV account if required. No Vault Content Sync account or paid plan is required.
+4. Click the ribbon icon or run **完整核验并预览** (verify and preview), then **完整核验 / 刷新预览** (refresh). The first preview compares both sides without creating a sync baseline or changing files.
+5. Use **比较内容** to inspect a conflict. External connections cannot execute uploads, downloads, merge applications or recovery. The **隔离模拟服务写入** setting only enables writes to the localhost test service.
 
-文件较多时会完整读取两端内容，请等待核验完成。地址必须直接指向目标文件夹：插件不会跟随重定向，也不接受 URL 中的凭据、查询参数或片段。密码在停用插件或重启后需重新输入。
+Verification reads all in-scope file contents, so large folders take time. Redirects are not followed. URLs with embedded credentials, query parameters or fragments are rejected and not saved. Re-enter the password after disabling the plugin or restarting Obsidian.
 
-## 开发与验证
+## Network, storage and permissions
 
-Node.js 24、pnpm 10：
+The plugin contacts only your configured WebDAV endpoint to list and read files. It has no telemetry, advertisements or project-operated service. HTTP is accepted only for localhost testing; external connections require HTTPS. HTTP Basic authentication uses base64 encoding for the username/password header, not to hide executable code. The bundled YAML parser also includes base64 handling for YAML binary values; those values are data, not scripts.
+
+The endpoint, username and mock-mode preference are saved using Obsidian's plugin settings API. The password stays in memory for the plugin session and is not saved. Remote responses are treated as data, never executed as code.
+
+This desktop plugin uses Node.js filesystem APIs rather than only the Vault API: streaming checksums, exclusive creates, hard-link preservation and disk flushes support exact bytes and interrupted-operation recovery. Those APIs technically permit system-wide file access. Normal plugin operations use the current vault; configured and default exclusion folders and symlinks are skipped. It does not scan other vaults. Development tools accept explicitly specified test paths; use synthetic data under `runtime/` only.
+
+The actual Obsidian configuration directory comes from `Vault.configDir` and is excluded locally and remotely, including custom locations. `.obsidian` remains additionally excluded to protect default/configuration folders copied from other devices. State format **2** and the `.plain-sync/` directory are unchanged; original versions and checkpoints are not automatically deleted. Format 1 requires explicit migration.
+
+External conditional-write and concurrency guarantees have not been verified, so external writes remain disabled. Other limitations include YAML field-level merging, character-level merging, moved-block recognition, directory rename recognition and automatic history cleanup.
+
+## Development and verification
+
+Node.js 24+ and pnpm 10.17.0:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -38,30 +51,17 @@ pnpm demo
 pnpm e2e
 ```
 
-`pnpm build` 输出 `dist/vault-content-sync/`，包含 `main.js`、`manifest.json`、`styles.css` 及许可证。插件 ID 为 `vault-content-sync`。`pnpm check:release` 同时检查发布字段、兼容版本、安装附件和内嵌许可证。`pnpm e2e` 仅在 macOS 的独立 Obsidian 配置和 `runtime/` 合成库内验证，不访问日常笔记库。
+`pnpm check:release` runs formatting, type checking, community lint, builds, module boundary checks and release checks. `pnpm e2e` requires macOS and Obsidian; it launches a separate profile and synthetic vault under `runtime/`. It does not install into a daily-use vault.
 
-```text
-src/       插件入口、同步引擎、原生界面和纯计算合并模块
-tests/     行为契约、同步与恢复回归测试
-tools/     构建、模拟服务、隔离演示和故障测试
-docs/      当前设计、合并规则与验证结果
-```
+`pnpm build` outputs `dist/vault-content-sync/`. Releases attach only the three files Obsidian installs. Full applicable licenses and development notices are embedded in `main.js`; SHA-256 checksums are in the release notes. A manually triggered GitHub Actions build provides artifact attestations; compare the checksums and verify with `gh attestation verify main.js --repo LLLLAAAA2333/vault-content-sync` (also applicable to the other two files).
 
-## 使用边界与数据
+- [Contributing](CONTRIBUTING.md)
+- [Design and data protection](docs/DESIGN.md)
+- [Merge contract](docs/MERGE_CONTRACT.md)
+- [Verification](docs/VERIFICATION.md)
+- [Scorecard findings and disposition](docs/SCORECARD_REVIEW.md)
+- [Progress](PROGRESS.md)
 
-仅向用户配置的 WebDAV 地址发送请求，用于列举文件并核验内容；不收集遥测，不连接项目自有服务。地址、用户名和模拟开关保存在当前库的插件配置中；密码仅保留在插件会话中，不写入配置。正常插件操作使用当前笔记库，不扫描其他笔记库；实际配置目录（包括自定义名称）及默认排除目录不会作为笔记扫描或传输。服务器响应仅用于解析路径及文件内容，不执行其中的代码。
+## License and provenance
 
-开发工具可操作显式指定的测试路径；测试写入限于 `runtime/` 合成数据。同步状态目录仍为 `.plain-sync/`、格式为 2，未因品牌更名改变；其中的原始版本和检查点不自动清理。格式 1 不自动迁移。
-
-真实服务的条件写入与并发保证尚未验证，因此当前禁止外部写入。尚不支持移动端、YAML 字段级合并、字符级合并、移动识别、目录重命名识别和历史自动清理。
-
-- [设计与数据保护边界](docs/DESIGN.md)
-- [文本合并行为契约](docs/MERGE_CONTRACT.md)
-- [验证结果](docs/VERIFICATION.md)
-- [当前开发进度](PROGRESS.md)
-
-- [发布前检查与审核范围](docs/RELEASE_REVIEW.md)
-
-## 许可
-
-采用 [MIT License](LICENSE)。依赖库及开发来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+[MIT License](LICENSE). Applicable dependency licenses and the project's MDSync development origins are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Replacing implementations or starting a new repository does not erase that history or establish community-policy eligibility by itself.

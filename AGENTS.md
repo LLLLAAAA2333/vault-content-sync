@@ -1,6 +1,6 @@
 # Vault Content Sync
 
-单包 Obsidian 桌面插件，当前版本 0.4.1。入口 `src/main.ts`；同步 `src/sync/`、原生界面 `src/ui/`、纯计算合并 `src/merge/`。
+单包 Obsidian 桌面插件，当前版本 0.4.2。入口 `src/main.ts`；同步 `src/sync/`、原生界面 `src/ui/`、纯计算合并 `src/merge/`。
 
 - Node 24、pnpm 10。`pnpm check` 检查格式、类型、构建和模块边界，`pnpm test` 包括单元及模拟服务故障测试；`pnpm e2e` 仅启动隔离 Obsidian 配置与合成库。
 - 合并契约见 `docs/MERGE_CONTRACT.md`。冲突/超限结果不含待写入正文；整个任务共用预算，不统一转换换行或把 updated 策略放入合并模块。

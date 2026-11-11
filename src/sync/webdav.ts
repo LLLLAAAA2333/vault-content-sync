@@ -4,6 +4,7 @@ import * as fs from "node:fs/promises";
 import * as http from "node:http";
 import * as https from "node:https";
 import type { Readable } from "node:stream";
+import * as timers from "node:timers";
 import { collectionUrl, isLoopback } from "./connection";
 import { digest, smallText } from "./files";
 import {
@@ -13,6 +14,7 @@ import {
 	type Store,
 	safePath,
 } from "./model";
+import { byteChunks } from "./validation";
 
 export interface DavOptions {
 	url: string;
@@ -33,12 +35,12 @@ export function request(
 			{ method, headers },
 			resolve,
 		);
-		const timer = setTimeout(
+		const timer = timers.setTimeout(
 			() => req.destroy(new Error("Request deadline exceeded")),
 			120_000,
 		);
 		req.on("error", reject);
-		req.on("close", () => clearTimeout(timer));
+		req.on("close", () => timers.clearTimeout(timer));
 		if (typeof body === "string") req.end(body);
 		else if (body) {
 			body.on("error", (e) => req.destroy(e));
@@ -56,13 +58,13 @@ export async function responseText(
 ) {
 	const chunks: Buffer[] = [];
 	let size = 0;
-	for await (const chunk of res) {
+	for await (const chunk of byteChunks(res)) {
 		size += chunk.length;
 		if (size > limit) {
 			res.destroy();
 			throw new Error("Response exceeds budget");
 		}
-		chunks.push(Buffer.from(chunk));
+		chunks.push(chunk);
 	}
 	return Buffer.concat(chunks).toString("utf8");
 }

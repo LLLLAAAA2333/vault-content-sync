@@ -7,17 +7,13 @@ import {
 	PlainSettings,
 	WebDavStore,
 } from "@/sync";
-import { savedCollectionUrl } from "./sync/connection";
+import { loadSettings } from "./sync/settings";
 export async function registerPlain(plugin: Plugin) {
-	const raw = await plugin.loadData();
+	const raw: unknown = await plugin.loadData();
 	const host: PlainHost = {
 		app: plugin.app,
 		plugin,
-		settings: {
-			url: savedCollectionUrl(raw?.url),
-			username: typeof raw?.username === "string" ? raw.username : "",
-			mock: raw?.mock === true,
-		},
+		settings: loadSettings(raw),
 		password: "",
 		openPreview: () => {
 			const view = new PlainPreview(host);

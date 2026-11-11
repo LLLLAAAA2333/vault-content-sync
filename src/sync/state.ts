@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import { join } from "node:path";
+import { checkpoint } from "./checkpoint";
 import { absent, syncDir } from "./files";
-import { META, type State, safePath } from "./model";
+import { type Intent, META, type State } from "./model";
+import { dictionary, hasErrorCode } from "./validation";
 
 export class Journal {
 	readonly dir: string;
@@ -20,8 +22,8 @@ export class Journal {
 			return {
 				format: 2,
 				identity: this.identity,
-				baseline: Object.create(null),
-				pending: Object.create(null),
+				baseline: dictionary<string | null>(),
+				pending: dictionary<Intent>(),
 			};
 		if (!st.isDirectory() || st.isSymbolicLink())
 			throw new Error("Invalid state directory");
@@ -32,52 +34,13 @@ export class Journal {
 			return {
 				format: 2,
 				identity: this.identity,
-				baseline: Object.create(null),
-				pending: Object.create(null),
+				baseline: dictionary<string | null>(),
+				pending: dictionary<Intent>(),
 			};
-		const value: State = JSON.parse(
+		const value: unknown = JSON.parse(
 			await fs.readFile(join(this.dir, files.slice(-1)[0]!), "utf8"),
 		);
-		if (
-			value.format !== 2 ||
-			value.identity !== this.identity ||
-			!value.baseline ||
-			!value.pending
-		)
-			throw new Error(
-				"State identity or format mismatch; legacy byte-only checkpoints require explicit migration",
-			);
-		for (const [path, hash] of Object.entries(value.baseline)) {
-			safePath(path);
-			if (hash !== null && !/^[a-f0-9]{64}$/.test(hash))
-				throw new Error("Corrupt baseline");
-		}
-		for (const [path, intent] of Object.entries(value.pending)) {
-			safePath(path);
-			if (
-				!intent ||
-				intent.path !== path ||
-				!["prepared", "remote", "local"].includes(intent.phase) ||
-				![intent.local, intent.remote].every(
-					(v) =>
-						v === null ||
-						(v &&
-							/^[a-f0-9]{64}$/.test(v.hash) &&
-							(v.syncHash === undefined || /^[a-f0-9]{64}$/.test(v.syncHash)) &&
-							typeof v.version === "string" &&
-							Number.isSafeInteger(v.size) &&
-							v.size >= 0),
-				) ||
-				!/^[a-f0-9-]{36}$/.test(intent.id) ||
-				(intent.desired !== null && !/^[a-f0-9]{64}$/.test(intent.desired)) ||
-				(intent.localDesired !== null &&
-					!/^[a-f0-9]{64}$/.test(intent.localDesired))
-			)
-				throw new Error("Corrupt intent");
-		}
-		value.baseline = Object.assign(Object.create(null), value.baseline);
-		value.pending = Object.assign(Object.create(null), value.pending);
-		return value;
+		return checkpoint(value, this.identity);
 	}
 	private async ensure() {
 		for (const dir of [this.dir, this.blobs, join(this.dir, "displaced")]) {
@@ -85,8 +48,8 @@ export class Journal {
 			if (before && (!before.isDirectory() || before.isSymbolicLink()))
 				throw new Error("Unsafe journal directory");
 			if (!before)
-				await fs.mkdir(dir).catch((e) => {
-					if (e.code !== "EEXIST") throw e;
+				await fs.mkdir(dir).catch((e: unknown) => {
+					if (!hasErrorCode(e, "EEXIST")) throw e;
 				});
 			const after = await fs.lstat(dir);
 			if (!after.isDirectory() || after.isSymbolicLink())
@@ -133,7 +96,7 @@ export class Journal {
 					process.kill(pid, 0);
 					throw new Error("Another operation holds the journal");
 				} catch (e) {
-					if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e;
+					if (!hasErrorCode(e, "ESRCH")) throw e;
 				}
 			}
 			return await fn();
