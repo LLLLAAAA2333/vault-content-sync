@@ -51,5 +51,32 @@
 	},
 	"externalWrites": "disabled",
 	"stateFormat": 2,
-	"validationScope": "Synthetic isolated macOS Obsidian 1.14.4 and localhost mock. Production installation is separately authorized; no production sync writes."
+	"validationScope": "Synthetic isolated macOS Obsidian 1.14.4 and localhost mock. Production installation is separately authorized; no production sync writes.",
+	"sourceCommit": "771fdcad1005254eafb038b7ff026ac49b8e3ebb",
+	"releaseUrl": "https://github.com/LLLLAAAA2333/vault-content-sync/releases/tag/0.5.0",
+	"githubBuild": {
+		"runUrl": "https://github.com/LLLLAAAA2333/vault-content-sync/actions/runs/43161501762",
+		"conclusion": "success",
+		"ref": "refs/tags/0.5.0",
+		"installFilesMatchLocal": true,
+		"attestationVerified": true
+	},
+	"publishedDownloadsMatchTestedFiles": true,
+	"authorizedProductionInstallation": {
+		"version": "0.5.0",
+		"loadedAndEnabled": true,
+		"sidebarRendered": true,
+		"settingsConnectionTestIndexed": true,
+		"previousPluginBackedUp": true,
+		"configurationBytesUnchanged": true,
+		"enabledPluginListUnchanged": true,
+		"nonConfigurationMetadataChanges": 0,
+		"syncStateMetadataChanges": 0,
+		"simpleWebdavRemainedDisabled": true,
+		"externalWritable": false,
+		"realConnectionTestExecuted": false,
+		"realPreviewExecuted": false,
+		"syncWritesExecuted": false,
+		"scope": "Installation and UI only; no private paths, contents, settings values or logs included"
+	}
 }

@@ -2,7 +2,11 @@
 
 用户明确授权将本轮界面与文档提交推送、发布新版本，并备份后安装到指定真实 Note 库查看效果。此前“未发布/不安装”记录是当时的任务边界；本轮只授权插件安装与只读界面验证，不开放真实同步写入。
 
-0.5.0 包含连接测试、读取进度、紧凑侧栏、筛选/原生菜单、默认收起的冲突片段、主编辑区只读比较，以及显示预算和异步焦点保护。完整冻结安装、check:release、192 单元 + 2 故障测试、双设备模拟、隔离 Obsidian 1.14.4 通过；安装三文件与隔离实测逐字一致。来源、许可、updated 和 format 2 保持。发布证据见 docs/evidence/release-0.5.0.json；发布结果及真实库安装结果将在完成后追加记录。
+0.5.0 包含连接测试、读取进度、紧凑侧栏、筛选/原生菜单、默认收起的冲突片段、主编辑区只读比较，以及显示预算和异步焦点保护。完整冻结安装、check:release、192 单元 + 2 故障测试、双设备模拟、隔离 Obsidian 1.14.4 通过；安装三文件与隔离实测逐字一致。来源、许可、updated 和 format 2 保持。发布证据见 docs/evidence/release-0.5.0.json；已发布并完成用户授权的实际库安装，结果见下段。
+
+已提交推送并公开发布 [https://github.com/LLLLAAAA2333/vault-content-sync/releases/tag/0.5.0](https://github.com/LLLLAAAA2333/vault-content-sync/releases/tag/0.5.0)；tag 源码 `771fdcad1005254eafb038b7ff026ac49b8e3ebb`，保留全部既有历史。GitHub [构建与来源证明](https://github.com/LLLLAAAA2333/vault-content-sync/actions/runs/43161501762) 成功，三文件与本机隔离实测逐字一致，gh attestation verify 通过；发布后下载再次逐字核对。Release 仅包含三个安装附件，许可已内嵌。
+
+按用户授权，先在忽略的 runtime/ 目录完整备份旧插件与启用列表，再安装发布附件并正常重启 Obsidian。实际库已加载并启用 0.5.0，新侧栏可见、无横向溢出，连接测试设置已索引；原 data.json 与启用列表逐字不变。Simple WebDAV Sync 保持停用，外部写入为 false；非配置文件与同步状态的安装前后元数据无变化。本轮没有读取凭据、连接真实 WebDAV、运行真实内容核验或同步写入。安装截图/私有备份与审计仅留本地，不入 Git；会话密码在重启后需由用户重新输入。
 
 ---
 
