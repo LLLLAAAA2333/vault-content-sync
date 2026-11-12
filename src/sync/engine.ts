@@ -11,6 +11,7 @@ import {
 	type Preview,
 	plan,
 	type Row,
+	type ScanProgress,
 	type Seen,
 	type State,
 	type Store,
@@ -32,10 +33,18 @@ export class PlainEngine {
 			throw new Error("Write capability unknown; this connection is read-only");
 	}
 
-	async preview(): Promise<Preview> {
+	async preview(
+		onProgress?: (
+			progress: ScanProgress & { side: "local" | "remote" },
+		) => void,
+	): Promise<Preview> {
 		const state = await this.journal.load();
-		const l = await scan(this.local),
-			r = await scan(this.remote);
+		const l = await scan(this.local, (progress) =>
+				onProgress?.({ ...progress, side: "local" }),
+			),
+			r = await scan(this.remote, (progress) =>
+				onProgress?.({ ...progress, side: "remote" }),
+			);
 		return plan(state, l, r);
 	}
 	async run(

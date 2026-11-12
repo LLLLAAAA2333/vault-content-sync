@@ -4,7 +4,9 @@
 
 Compare notes and attachments in your Obsidian vault with a WebDAV folder by their content. Inspect conflicts and use a conservative line-level three-way merge when a common version exists. The local Markdown top-level `updated` field stays local; other properties and content are compared.
 
-**0.4.2 is experimental. External WebDAV connections provide read-only previews.** Uploads, downloads, applying conflict choices and recovery are only enabled for the bundled localhost simulation. Nothing connects or syncs automatically. The plugin has a public community listing; see its current scorecard for automated review results.
+**0.5.0 is experimental. External WebDAV connections provide read-only previews.** Uploads, downloads, applying conflict choices and recovery are only enabled for the bundled localhost simulation. Nothing connects or syncs automatically. The plugin has a public community listing; see its current scorecard for automated review results.
+
+Version 0.5.0 adds a **Test connection** action in settings, a compact source-control sidebar, and a read-only comparison tab in the main editor. Quick conflict previews are available on demand.
 
 ## Features
 
@@ -22,8 +24,8 @@ Requires **Obsidian desktop 1.14.4+**. App testing has been performed on macOS o
 1. Open the [community listing](https://community.obsidian.md/plugins/vault-content-sync) and choose **Add to Obsidian**, targeting your isolated test vault. Alternatively, download `main.js`, `manifest.json` and `styles.css` from the same [GitHub Release](https://github.com/LLLLAAAA2333/vault-content-sync/releases), and place them in `<your-config-directory>/plugins/vault-content-sync/` in that test vault.
 2. Enable **Vault Content Sync** in Community plugins and open its settings. Setting labels are currently in Chinese; they also have English search keywords such as `WebDAV`, `username` and `password`.
 3. Enter the exact WebDAV **HTTPS folder URL**, then your service username and password separately. Use your own WebDAV account if required. No Vault Content Sync account or paid plan is required.
-4. Click the ribbon icon or run **完整核验并预览** (verify and preview), then **完整核验 / 刷新预览** (refresh). The first preview compares both sides without creating a sync baseline or changing files.
-5. Use **比较内容** to inspect a conflict. External connections cannot execute uploads, downloads, merge applications or recovery. The **隔离模拟服务写入** setting only enables writes to the localhost test service.
+4. Click **测试连接** (test connection) in plugin settings. It checks only the configured directory, with a 15-second deadline and a 64 KiB response limit; it does not read notes or create sync state. Click the ribbon icon or run **完整核验并预览**, then the refresh icon **核验内容** (verify content). The first preview compares both sides without creating a sync baseline or changing files.
+5. The preview opens in the left sidebar. Conflicts, local changes and remote changes are collapsible groups; the filter icon reveals filename/path and status filters. Click a filename to open a read-only local/remote comparison in the main editor. The eye icon opens optional conflict fragments in the sidebar; they start collapsed. File actions appear on hover or keyboard focus and in the context menu. Connection tests and content rules stay in settings. Without a common version, the interface explicitly shows two content previews rather than claiming to locate conflicting lines. External connections cannot execute uploads, downloads, merge applications or recovery. The **隔离模拟服务写入** setting only enables writes to the localhost test service.
 
 Verification reads all in-scope file contents, so large folders take time. Redirects are not followed. URLs with embedded credentials, query parameters or fragments are rejected and not saved. Re-enter the password after disabling the plugin or restarting Obsidian.
 

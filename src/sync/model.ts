@@ -124,7 +124,16 @@ export function classify(
 	if (b === base) return a === null ? "delete-remote" : "upload";
 	return "conflict";
 }
-export async function scan(store: Store): Promise<Scan> {
+export interface ScanProgress {
+	phase: "listing" | "reading";
+	completed: number;
+	total: number;
+	bytes: number;
+}
+export async function scan(
+	store: Store,
+	onProgress?: (progress: ScanProgress) => void,
+): Promise<Scan> {
 	const result: Scan = {
 		files: dictionary<Seen>(),
 		excluded: [...(store.excludedRoots ?? [])],
@@ -133,10 +142,18 @@ export async function scan(store: Store): Promise<Scan> {
 		bytes: 0,
 	};
 	try {
+		onProgress?.({ phase: "listing", completed: 0, total: 0, bytes: 0 });
 		const listing = await store.list();
 		result.excluded = [...new Set([...result.excluded, ...listing.excluded])];
 		result.folders = listing.folders;
 		let cursor = 0;
+		let completed = 0;
+		onProgress?.({
+			phase: "reading",
+			completed,
+			total: listing.files.length,
+			bytes: result.bytes,
+		});
 		await Promise.all(
 			[0, 1].map(async () => {
 				while (cursor < listing.files.length) {
@@ -149,6 +166,14 @@ export async function scan(store: Store): Promise<Scan> {
 						result.bytes += seen.size;
 					} catch {
 						result.errors[path] = "File could not be fully verified";
+					} finally {
+						completed++;
+						onProgress?.({
+							phase: "reading",
+							completed,
+							total: listing.files.length,
+							bytes: result.bytes,
+						});
 					}
 				}
 			}),

@@ -1,0 +1,59 @@
+{
+	"date": "2026-11-12",
+	"status": "unreleased development changes on 0.4.2",
+	"checks": {
+		"checkRelease": "passed",
+		"unitTests": 170,
+		"toolFaultTests": 2,
+		"twoDeviceDemo": "passed",
+		"isolatedObsidian": {
+			"passed": true,
+			"pluginId": "vault-content-sync",
+			"obsidian": "1.14.4 (visible app title)",
+			"checks": [
+				"declarative settings render and are indexed with English search aliases",
+				"invalid endpoint is not saved and password remains session-only",
+				"opening settings creates no WebDAV requests; explicit connection test sends one Depth 0 request",
+				"connection success, invalid URL and permission error feedback; zero file GET or writes",
+				"live read progress, filename search and status filters",
+				"read-only mode hides all mutation actions",
+				"light and dark themes, narrow layout without horizontal overflow",
+				"preview creates no metadata",
+				"host configuration directory is excluded on both sides",
+				"native preview and execute controls",
+				"cancel confirmation produces zero writes",
+				"read-only text comparison and narrow desktop layout",
+				"attachment bytes",
+				"explicit conflict resolution",
+				"native text merge: adjacent replacements, exact mixed endings, local updated",
+				"overlap merge refusal leaves both sides unchanged",
+				"lost merge response visible error",
+				"real process restart and idempotent merged-target recovery"
+			],
+			"errors": [],
+			"requests": {
+				"get": 88,
+				"put": 4,
+				"delete": 0,
+				"propfind": 16
+			}
+		}
+	},
+	"uiReview": {
+		"initial": "fix",
+		"verdict": "ship",
+		"scope": "both reported connection-state lifecycle findings resolved; code and recaptured screenshots"
+	},
+	"boundaries": {
+		"externalWebDavAccess": false,
+		"productionPluginInstall": false,
+		"productionNotes": "Separate user-authorized local exact-duplicate quarantine completed and verified; private manifests and backups excluded from Git",
+		"stateFormat": 2
+	},
+	"assetsSha256": {
+		"styles.css": "33411e50b61eea3ca3d73a10da018af746c7a9ff5502c5ba9b9de947f41a88a4",
+		"main.js": "94437d0f0e86d0b918c2ebc716478850d4de526df097b083b96cc677e9152a79",
+		"manifest.json": "27f0a43d6d754f9f1eada5dc2304c448ba1756fed41734a87715c3ca9cab4eb1",
+		"vault-content-sync-ui-dev-20261112.zip": "e3dad0c2e296b0df33646bb7eb7a7dc1495b869234eb587197b354338e2c8202"
+	}
+}

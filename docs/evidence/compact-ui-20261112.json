@@ -1,0 +1,71 @@
+{
+	"date": "2026-11-12",
+	"status": "unreleased development changes on 0.4.2",
+	"unitTests": 192,
+	"toolFaultTests": 2,
+	"checkRelease": "passed",
+	"twoDeviceDemo": "passed",
+	"isolatedObsidian": {
+		"passed": true,
+		"pluginId": "vault-content-sync",
+		"obsidian": "1.14.4 (visible app title)",
+		"checks": [
+			"declarative settings render and are indexed with English search aliases",
+			"invalid endpoint is not saved and password remains session-only",
+			"opening settings creates no WebDAV requests; explicit connection test sends one Depth 0 request",
+			"connection success, invalid URL and permission error feedback; zero file GET or writes",
+			"live read progress, filename search and status filters",
+			"persistent native sidebar; no-baseline distinction and precise overlapping conflict snippets",
+			"read-only mode hides all mutation actions",
+			"light and dark themes, narrow layout without horizontal overflow",
+			"preview creates no metadata",
+			"host configuration directory is excluded on both sides",
+			"native preview and execute controls",
+			"cancel confirmation produces zero writes",
+			"main editor comparison tab, aligned diff, lazy raw text, empty persisted view state",
+			"default-closed quick preview; keyboard file menus; settings-only connection test",
+			"quick preview completion preserves focus on same-row actions, another filename and external search",
+			"stale comparison responses cannot overwrite selection or steal keyboard focus",
+			"comparison light/dark/narrow; bounded highlight fallback retains complete text; changed files refuse stale display without writes",
+			"attachment bytes",
+			"explicit conflict resolution",
+			"native text merge: adjacent replacements, exact mixed endings, local updated",
+			"overlap merge refusal leaves both sides unchanged",
+			"lost merge response visible error",
+			"real process restart and idempotent merged-target recovery"
+		],
+		"errors": [],
+		"requests": {
+			"get": 116,
+			"put": 4,
+			"delete": 0,
+			"propfind": 15
+		}
+	},
+	"dataScope": "Synthetic runtime vaults and localhost mock only; no production vault or WebDAV access this turn",
+	"stateFormat": 2,
+	"verifiedAssetsMatchTestedBytes": true,
+	"assetsSha256": {
+		"main.js": "405d510647554242874803d9a8e44a808ac8657aa235d4eed6d58293926a85cb",
+		"styles.css": "e4069daab7a5260bde8601db1e247785a35f876f032c28b42cc8b9a01a908293",
+		"manifest.json": "27f0a43d6d754f9f1eada5dc2304c448ba1756fed41734a87715c3ca9cab4eb1",
+		"vault-content-sync-compact-dev-20261112.zip": "1ee68910521f0034966a409e7a862ef44ce24d29c18b7cd574eee9979ef200b6"
+	},
+	"displayBudget": {
+		"combinedUtf16Units": 500000,
+		"combinedLines": 2000,
+		"equalityComparisons": 200000
+	},
+	"limitations": [
+		"macOS Obsidian 1.14.4 only",
+		"Third-party themes and screen readers not tested",
+		"External writes remain disabled",
+		"Comparison UI is read-only, not an interactive merge editor"
+	],
+	"independentReview": {
+		"disposition": "ship",
+		"scope": "Verdict pass for list-control focus preservation; initial visual review found no other material issues",
+		"fix": "Update detail subtree without recreating file controls; delayed keyboard focus assertions passed"
+	},
+	"documentationReview": "Current README and design checked against implementation; corrected exceeds-budget wording"
+}

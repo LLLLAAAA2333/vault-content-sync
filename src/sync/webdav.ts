@@ -28,6 +28,7 @@ export function request(
 	method: string,
 	headers: Record<string, string> = {},
 	body?: Readable | string,
+	deadlineMs = 120_000,
 ): Promise<http.IncomingMessage> {
 	return new Promise((resolve, reject) => {
 		const req = (url.protocol === "https:" ? https : http).request(
@@ -37,7 +38,7 @@ export function request(
 		);
 		const timer = timers.setTimeout(
 			() => req.destroy(new Error("Request deadline exceeded")),
-			120_000,
+			deadlineMs,
 		);
 		req.on("error", reject);
 		req.on("close", () => timers.clearTimeout(timer));
@@ -74,6 +75,83 @@ export class WebDavStore implements Store {
 	readonly identity: string;
 	readonly headers: Record<string, string>;
 	writable = false;
+	/** Read collection metadata only: no recursion, file GET, or writes. */
+	async testConnection(): Promise<void> {
+		let res: http.IncomingMessage;
+		try {
+			res = await request(
+				this.root,
+				"PROPFIND",
+				{
+					...this.headers,
+					Depth: "0",
+					"Content-Type": "application/xml",
+					"Cache-Control": "no-cache",
+				},
+				'<d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>',
+				15_000,
+			);
+		} catch {
+			throw new Error("连接失败或超时，请检查网络、地址和服务器证书。");
+		}
+		const status = res.statusCode ?? 0;
+		if (status !== 207) {
+			res.destroy();
+			const messages: Record<number, string> = {
+				401: "身份验证失败，请检查用户名和密码。",
+				403: "没有访问权限，请检查账号的目录权限。",
+				404: "目录不存在，请检查 WebDAV 文件夹地址。",
+				405: "该地址不支持 WebDAV，请填写 WebDAV 入口。",
+			};
+			throw new Error(
+				messages[status] ??
+					(status >= 300 && status < 400
+						? "服务器要求跳转，请直接填写最终 WebDAV 文件夹地址。"
+						: `服务器未返回有效的 WebDAV 响应（HTTP ${status}）。`),
+			);
+		}
+		try {
+			const xml = new DOMParser().parseFromString(
+				await responseText(res, 64 * 1024),
+				"application/xml",
+			);
+			const entries = Array.from(
+				xml.getElementsByTagNameNS("DAV:", "response"),
+			);
+			const entry = entries[0];
+			if (
+				xml.getElementsByTagName("parsererror").length ||
+				xml.documentElement.localName !== "multistatus" ||
+				xml.documentElement.namespaceURI !== "DAV:" ||
+				entries.length !== 1 ||
+				!entry
+			)
+				throw new Error("Invalid collection response");
+			const href = entry.getElementsByTagNameNS("DAV:", "href")[0]?.textContent;
+			const target = href ? new URL(href, this.root) : null;
+			const statuses = Array.from(
+				entry.getElementsByTagNameNS("DAV:", "status"),
+			);
+			if (
+				!target ||
+				target.origin !== this.root.origin ||
+				target.search ||
+				target.hash ||
+				target.pathname.replace(/\/$/, "") !==
+					this.root.pathname.replace(/\/$/, "") ||
+				!statuses.length ||
+				statuses.some(
+					(node) =>
+						!/^HTTP\/\d(?:\.\d)? 200(?: |$)/.test(node.textContent ?? ""),
+				) ||
+				!entry.getElementsByTagNameNS("DAV:", "collection").length
+			)
+				throw new Error("Not the requested readable collection");
+		} catch {
+			res.destroy();
+			throw new Error("未能确认目录可读，请检查地址是否指向 WebDAV 文件夹。");
+		}
+	}
 	constructor(options: DavOptions) {
 		this.root = collectionUrl(options.url);
 		this.excludedRoots = (options.excludedRoots ?? []).map(safePath);

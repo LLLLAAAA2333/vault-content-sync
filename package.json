@@ -1,6 +1,6 @@
 {
 	"name": "vault-content-sync",
-	"version": "0.4.2",
+	"version": "0.5.0",
 	"description": "Desktop Obsidian plugin for WebDAV content verification and conservative three-way text merging",
 	"private": true,
 	"type": "module",

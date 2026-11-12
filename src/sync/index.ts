@@ -1,5 +1,5 @@
 export type { PlainHost } from "../ui/view";
-export { PlainPreview, PlainSettings } from "../ui/view";
+export { PlainPreview, PlainSettings, SYNC_VIEW_TYPE } from "../ui/view";
 export { PlainEngine } from "./engine";
 export { hashFile, LocalStore } from "./files";
 export type { Preview, Row, Seen, Store } from "./model";

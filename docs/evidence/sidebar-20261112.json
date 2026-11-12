@@ -1,0 +1,50 @@
+{
+	"date": "2026-11-12",
+	"status": "unreleased development changes on 0.4.2",
+	"unitTests": 181,
+	"toolFaultTests": 2,
+	"checkRelease": "passed",
+	"twoDeviceDemo": "passed",
+	"isolatedObsidian": {
+		"passed": true,
+		"pluginId": "vault-content-sync",
+		"obsidian": "1.14.4 (visible app title)",
+		"checks": [
+			"declarative settings render and are indexed with English search aliases",
+			"invalid endpoint is not saved and password remains session-only",
+			"opening settings creates no WebDAV requests; explicit connection test sends one Depth 0 request",
+			"connection success, invalid URL and permission error feedback; zero file GET or writes",
+			"live read progress, filename search and status filters",
+			"persistent native sidebar; no-baseline distinction and precise overlapping conflict snippets",
+			"read-only mode hides all mutation actions",
+			"light and dark themes, narrow layout without horizontal overflow",
+			"preview creates no metadata",
+			"host configuration directory is excluded on both sides",
+			"native preview and execute controls",
+			"cancel confirmation produces zero writes",
+			"read-only text comparison and narrow desktop layout",
+			"attachment bytes",
+			"explicit conflict resolution",
+			"native text merge: adjacent replacements, exact mixed endings, local updated",
+			"overlap merge refusal leaves both sides unchanged",
+			"lost merge response visible error",
+			"real process restart and idempotent merged-target recovery"
+		],
+		"errors": [],
+		"requests": {
+			"get": 99,
+			"put": 4,
+			"delete": 0,
+			"propfind": 19
+		}
+	},
+	"dataScope": "Synthetic runtime vaults and localhost mock only; no production vault or WebDAV access this turn",
+	"stateFormat": 2,
+	"verifiedAssetsMatchTestedBytes": true,
+	"assetsSha256": {
+		"main.js": "9ce3daf47adc2ba6bda6297a429938dc334e1eed759e28991052a7b314c59929",
+		"styles.css": "338a371c9b787d41daf6a112888b68c91b5df1d84afe0628e1a5e69606c27958",
+		"manifest.json": "27f0a43d6d754f9f1eada5dc2304c448ba1756fed41734a87715c3ca9cab4eb1",
+		"vault-content-sync-sidebar-dev-20261112.zip": "37bb4b5f6e064e523d295cbc36ba1775399a9df7905cd7433009acdcb1cab6c3"
+	}
+}

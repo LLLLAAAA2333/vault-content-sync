@@ -7,15 +7,16 @@ const xml = (s) =>
 export async function startMock({ unsafe = false } = {}) {
 	const files = new Map(),
 		dirs = new Set([""]);
-	const counters = { get: 0, put: 0, delete: 0 };
+	const counters = { get: 0, put: 0, delete: 0, propfind: 0 };
 	let serial = 0;
-	/** @type {{beforeCommit: null | ((event: {method: string, path: string}) => Promise<void>), loseResponse: boolean, failList: boolean, forbidden: string | null, truncateGet: boolean}} */
+	/** @type {{beforeCommit: null | ((event: {method: string, path: string}) => Promise<void>), loseResponse: boolean, failList: boolean, forbidden: string | null, truncateGet: boolean, readDelay: number}} */
 	const hooks = {
 		beforeCommit: null,
 		loseResponse: false,
 		failList: false,
 		forbidden: null,
 		truncateGet: false,
+		readDelay: 0,
 	};
 	const put = (path, body) =>
 		files.set(path, {
@@ -40,6 +41,8 @@ export async function startMock({ unsafe = false } = {}) {
 						: true;
 			if (req.method === "GET") {
 				counters.get++;
+				if (hooks.readDelay)
+					await new Promise((resolve) => setTimeout(resolve, hooks.readDelay));
 				const f = current();
 				if (!f) {
 					res.writeHead(404).end();
@@ -56,6 +59,7 @@ export async function startMock({ unsafe = false } = {}) {
 				return;
 			}
 			if (req.method === "PROPFIND") {
+				counters.propfind++;
 				if (hooks.failList) {
 					res.writeHead(503).end();
 					return;
@@ -68,9 +72,10 @@ export async function startMock({ unsafe = false } = {}) {
 					p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
 				const paths = [
 					path,
-					...[...dirs, ...files.keys()].filter(
-						(p) => p !== path && parent(p) === path,
-					),
+					...(req.headers.depth === "0"
+						? []
+						: [...dirs, ...files.keys()]
+					).filter((p) => p !== path && parent(p) === path),
 				];
 				const body = paths
 					.map(
