@@ -1,7 +1,7 @@
 {
 	"id": "vault-content-sync",
 	"name": "Vault Content Sync",
-	"version": "0.6.0",
+	"version": "0.6.1",
 	"minAppVersion": "1.14.4",
 	"description": "Compare notes and attachments with a WebDAV folder, review conflicts, and sync changes after verifying server write protection.",
 	"author": "LLLLAAAA2333",

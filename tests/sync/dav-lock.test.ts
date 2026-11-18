@@ -15,9 +15,14 @@ afterEach(async () => {
 });
 const token = "<urn:uuid:synthetic-lock>";
 const xml = (depth = "infinity", timeout = "Second-600") =>
-	`<d:prop xmlns:d="DAV:"><d:lockdiscovery><d:activelock><d:lockscope><d:exclusive/></d:lockscope><d:depth>${depth}</d:depth><d:timeout>${timeout}</d:timeout><d:locktoken><d:href>${token.slice(1, -1)}</d:href></d:locktoken></d:activelock></d:lockdiscovery></d:prop>`;
+	`<d:prop xmlns:d="DAV:"><d:lockdiscovery><d:activelock><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype><d:depth>${depth}</d:depth><d:timeout>${timeout}</d:timeout><d:locktoken><d:href>${token.slice(1, -1)}</d:href></d:locktoken></d:activelock></d:lockdiscovery></d:prop>`;
 async function serve(
-	options: { status?: number; body?: string; unlock?: number } = {},
+	options: {
+		status?: number;
+		body?: string;
+		unlock?: number;
+		header?: string | string[] | null;
+	} = {},
 ) {
 	const calls: { method?: string; headers: http.IncomingHttpHeaders }[] = [];
 	const server = http.createServer((req, res) => {
@@ -26,7 +31,12 @@ async function serve(
 		if (req.method === "UNLOCK") res.writeHead(options.unlock ?? 204).end();
 		else
 			res
-				.writeHead(options.status ?? 200, { "Lock-Token": token })
+				.writeHead(
+					options.status ?? 200,
+					options.header === null
+						? {}
+						: { "Lock-Token": options.header ?? token },
+				)
 				.end(options.body ?? xml());
 	});
 	servers.push(server);
@@ -51,7 +61,33 @@ it("uses a tagged collection token, releases on success, and disallows expired l
 	expect(s.calls[1]?.headers["lock-token"]).toBe(token);
 	expect(() => s.lock.conditions()).toThrow("失效");
 });
+it("canonicalizes a bare token confirmed by the LOCK response for If and UNLOCK", async () => {
+	const s = await serve({ header: token.slice(1, -1) });
+	await s.lock.run(async () => {
+		expect(s.lock.conditions()).toEqual({ If: `<${s.root.href}> (${token})` });
+	});
+	expect(s.calls.at(-1)?.headers["lock-token"]).toBe(token);
+});
 it.each([
+	null,
+	"token",
+	"<urn:test",
+	"urn:test>",
+	"urn:one urn:two",
+	["urn:one", "urn:two"],
+])(
+	"stops on missing, malformed or ambiguous token headers %#",
+	async (header) => {
+		const s = await serve({ header });
+		const task = vi.fn();
+		await expect(s.lock.run(task)).rejects.toThrow("Lock-Token");
+		expect(task).not.toHaveBeenCalled();
+		expect(s.calls).toHaveLength(1);
+	},
+);
+it.each([
+	xml().replace("urn:uuid:synthetic-lock", "urn:uuid:other"),
+	xml().replace("<d:write/>", "<d:read/>"),
 	xml("0"),
 	xml("infinity", "Second-5"),
 	xml("infinity", "Infinite"),

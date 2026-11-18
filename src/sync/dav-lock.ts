@@ -7,6 +7,22 @@ export class DavLockedError extends Error {
 	}
 }
 
+// Some WebDAV implementations return the token URI without the RFC 4918
+// angle brackets. Preserve its opaque bytes; send the standard coded URL.
+function lockTokenHeader(values: string[] | undefined) {
+	if (values?.length !== 1) return;
+	const header = values[0] ?? "";
+	const uri =
+		header.startsWith("<") && header.endsWith(">")
+			? header.slice(1, -1)
+			: header;
+	const validUri =
+		/^[a-z][a-z0-9+.-]*:(?:[a-z0-9._~:/?#@!$&'()*+,;=[\]-]|%[0-9a-f]{2})+$/i.test(
+			uri,
+		);
+	return validUri ? `<${uri}>` : undefined;
+}
+
 /** Exclusive collection lock: one writer per remote tree, including new children. */
 export class DavLock {
 	private token = "";
@@ -47,10 +63,14 @@ export class DavLock {
 				`服务器不支持所需的目录写入锁（HTTP ${response.statusCode}），保持仅预览。`,
 			);
 		}
-		const token = response.headers["lock-token"];
-		if (typeof token !== "string" || !/^<[^<>\s]+>$/.test(token)) {
+		const token = lockTokenHeader(response.headersDistinct["lock-token"]);
+		if (!token) {
 			response.destroy();
-			throw new Error("服务器未返回有效的写入锁令牌。");
+			throw new Error(
+				response.headers["lock-token"] === undefined
+					? "服务器已响应 LOCK，但响应头缺少 Lock-Token"
+					: "服务器已响应 LOCK，但 Lock-Token 响应头格式无效",
+			);
 		}
 		this.token = token;
 		let failure = false;
@@ -75,7 +95,12 @@ export class DavLock {
 			if (
 				xml.getElementsByTagName("parsererror").length ||
 				!active ||
-				!active.getElementsByTagNameNS("DAV:", "exclusive").length ||
+				!active
+					.getElementsByTagNameNS("DAV:", "lockscope")[0]
+					?.getElementsByTagNameNS("DAV:", "exclusive").length ||
+				!active
+					.getElementsByTagNameNS("DAV:", "locktype")[0]
+					?.getElementsByTagNameNS("DAV:", "write").length ||
 				active
 					.getElementsByTagNameNS("DAV:", "depth")[0]
 					?.textContent?.trim() !== "infinity" ||

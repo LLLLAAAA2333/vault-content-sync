@@ -10,7 +10,7 @@ Version 0.5.0 adds a **Test connection** action in settings, a compact source-co
 
 **Unreleased working tree:** the settings now use one masked password field and a **记住密码** (remember password) switch. The default remains session-only. Remembered passwords use Obsidian's encrypted local secret storage; no secret picker is required. Missing passwords and HTTP 401 now show a single authentication message instead of marking every file unverified. These changes are not in the published 0.5.0 assets.
 
-## Development version 0.6.0
+## Development version 0.6.1
 
 The current development build supports real WebDAV upload, download, guarded deletion, explicit local/remote conflict choices, conservative merging and interrupted-operation recovery. The published 0.5.0 behavior described above is unchanged. Use **验证并开启同步** in the sidebar or settings: it creates a new excluded synthetic directory, checks exclusive collection locks, strong validators, conditional writes and interrupted uploads, then enables this connection for this session. It does not synchronize notes. Verification is revoked on restart or connection/credential changes. Unsupported servers remain preview-only; this is not universal WebDAV compatibility.
 
