@@ -7,16 +7,28 @@ const xml = (s) =>
 export async function startMock({ unsafe = false } = {}) {
 	const files = new Map(),
 		dirs = new Set([""]);
-	const counters = { get: 0, put: 0, delete: 0, propfind: 0 };
+	const counters = {
+		get: 0,
+		put: 0,
+		delete: 0,
+		propfind: 0,
+		bodies: 0,
+		notModified: 0,
+	};
 	let serial = 0;
-	/** @type {{beforeCommit: null | ((event: {method: string, path: string}) => Promise<void>), loseResponse: boolean, failList: boolean, forbidden: string | null, truncateGet: boolean, readDelay: number}} */
+	/** @type {{beforeCommit: null | ((event: {method: string, path: string}) => Promise<void>), loseResponse: boolean, failList: boolean, forbidden: string | null, unauthorized: string | null, truncateGet: boolean, readDelay: number, ignoreConditional: boolean, responseEtag: string | null, notModifiedEtag: string | null, beforeGet: null | ((path: string) => void)}} */
 	const hooks = {
 		beforeCommit: null,
 		loseResponse: false,
 		failList: false,
 		forbidden: null,
+		unauthorized: null,
 		truncateGet: false,
 		readDelay: 0,
+		ignoreConditional: false,
+		responseEtag: null,
+		notModifiedEtag: null,
+		beforeGet: null,
 	};
 	const put = (path, body) =>
 		files.set(path, {
@@ -28,6 +40,10 @@ export async function startMock({ unsafe = false } = {}) {
 			const path = decodeURIComponent(new URL(req.url, "http://local").pathname)
 				.replace(/^\//, "")
 				.replace(/\/$/, "");
+			if (hooks.unauthorized === path) {
+				res.writeHead(401).end("synthetic secret response must not escape");
+				return;
+			}
 			if (hooks.forbidden === path) {
 				res.writeHead(403).end();
 				return;
@@ -43,12 +59,27 @@ export async function startMock({ unsafe = false } = {}) {
 				counters.get++;
 				if (hooks.readDelay)
 					await new Promise((resolve) => setTimeout(resolve, hooks.readDelay));
+				hooks.beforeGet?.(path);
 				const f = current();
 				if (!f) {
 					res.writeHead(404).end();
 					return;
 				}
-				res.writeHead(200, { ETag: f.etag, "Content-Length": f.body.length });
+				const etag = hooks.responseEtag ?? f.etag;
+				if (
+					!hooks.ignoreConditional &&
+					req.headers["if-none-match"] === etag.replace(/^W\//, "")
+				) {
+					counters.notModified++;
+					const validator = hooks.notModifiedEtag ?? etag;
+					res.writeHead(304, validator ? { ETag: validator } : {}).end();
+					return;
+				}
+				counters.bodies++;
+				res.writeHead(200, {
+					...(etag ? { ETag: etag } : {}),
+					"Content-Length": f.body.length,
+				});
 				if (hooks.truncateGet) {
 					hooks.truncateGet = false;
 					res.write(f.body.subarray(0, 1));

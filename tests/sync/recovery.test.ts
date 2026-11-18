@@ -28,6 +28,27 @@ it("resumes a local overwrite interrupted after parking the old inode", async ()
 	expect(await readFile(join(s.a, "n.md"), "utf8")).toBe("remote edit");
 	expect(Object.keys((await restart.journal.load()).pending)).toHaveLength(0);
 });
+it("recovers only the path and intent confirmed by the user", async () => {
+	const s = await setup();
+	await writeFile(join(s.a, "selected.md"), "content");
+	s.server.hooks.beforeCommit = async () => {
+		throw Error("interrupted");
+	};
+	await expect(sync(s.A)).rejects.toThrow();
+	s.server.hooks.beforeCommit = null;
+	const pending = (await s.A.journal.load()).pending;
+	const id = pending["selected.md"]!.id;
+	for (const confirmed of [
+		new Map([["other.md", id]]),
+		new Map([["selected.md", "stale"]]),
+	]) {
+		await s.A.recover(confirmed);
+		expect((await s.A.journal.load()).pending).toEqual(pending);
+		expect(s.server.files.has("selected.md")).toBe(false);
+	}
+	await s.A.recover(new Map([["selected.md", id]]));
+	expect((await s.A.journal.load()).pending).toEqual({});
+});
 it("keeps a newly created target after the old inode was parked", async () => {
 	const s = await setup();
 	await seed(s);
@@ -151,6 +172,32 @@ it("blocks case collisions in parent directories and file/folder collisions", as
 	await sync(s.A);
 	expect(s.server.counters.put).toBe(0);
 });
+
+it.each(["local", "remote"])(
+	"blocks children below a %s file/remote directory collision while syncing unrelated files",
+	async (fileSide) => {
+		const s = await setup();
+		if (fileSide === "local") {
+			await writeFile(join(s.a, "notes"), "local file");
+			s.server.dirs.add("notes");
+			s.server.dirs.add("notes/deep");
+			s.server.put("notes/deep/a.md", "remote");
+		} else {
+			await mkdir(join(s.a, "notes/deep"), { recursive: true });
+			await writeFile(join(s.a, "notes/deep/a.md"), "local");
+			s.server.put("notes", "remote file");
+		}
+		await writeFile(join(s.a, "unrelated.md"), "ok");
+		const preview = await s.A.preview();
+		expect(
+			preview.rows
+				.filter((r) => r.path.startsWith("notes"))
+				.every((r) => r.kind === "conflict"),
+		).toBe(true);
+		await s.A.run(preview);
+		expect(s.server.files.get("unrelated.md").body.toString()).toBe("ok");
+	},
+);
 it("rejects an overlapping conditional delete after another writer replaces the bytes", async () => {
 	const s = await setup();
 	await seed(s);
@@ -242,6 +289,28 @@ it("read-only capability blocks local downloads as well as remote writes, before
 	const p = await s.A.preview();
 	await expect(s.A.run(p)).rejects.toThrow("capability");
 	expect(await readdir(s.a)).toEqual([]);
+});
+
+it("a selected-file plan never resumes another path's unfinished operation", async () => {
+	const s = await setup();
+	await seed(s);
+	await writeFile(join(s.a, "n.md"), "pending upload");
+	s.server.hooks.loseResponse = true;
+	await expect(sync(s.A)).rejects.toThrow();
+	await writeFile(join(s.a, "selected.md"), "selected upload");
+	const p = await s.A.preview();
+	const result = await s.A.run({
+		...p,
+		rows: p.rows.filter((row) => row.path === "selected.md"),
+		writes: 1,
+	});
+	expect(result.remaining).toBe(1);
+	expect(Object.keys((await s.A.journal.load()).pending)).toEqual(["n.md"]);
+	expect(s.server.files.get("selected.md").body.toString()).toBe(
+		"selected upload",
+	);
+	await s.A.recover();
+	expect(Object.keys((await s.A.journal.load()).pending)).toEqual([]);
 });
 
 it("a repeated unchanged sync neither captures bytes again nor adds checkpoints", async () => {

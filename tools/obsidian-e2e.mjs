@@ -129,6 +129,39 @@ async function start() {
 		);
 		throw new Error("Plugin failed to load");
 	}
+	// Exercise the shipped plugin against the fault-injection server only in this fixture.
+	await page.evaluate(
+		({ endpoint, testVault }) => {
+			if (
+				app.vault.adapter.getBasePath() !== testVault ||
+				new URL(endpoint).hostname !== "127.0.0.1"
+			)
+				throw Error("Expected isolated loopback fixture");
+			const host = app.plugins.plugins["vault-content-sync"].host;
+			if (host.writeReady() || host.engine().remote.writable)
+				throw Error("Saved settings must never grant write access");
+			const engine = host.engine;
+			window.vcsTestWrites = true;
+			const mockAllowed = () =>
+				window.vcsTestWrites && host.settings.url === endpoint;
+			host.engine = () => {
+				const result = engine();
+				if (mockAllowed()) {
+					result.remote = new result.remote.constructor({
+						url: endpoint,
+						username: host.settings.username,
+						password: host.password,
+						excludedRoots: result.remote.excludedRoots,
+						isolatedMock: true,
+					});
+				}
+				return result;
+			};
+			const writeReady = host.writeReady;
+			host.writeReady = () => mockAllowed() || writeReady();
+		},
+		{ endpoint: server.url, testVault: vault },
+	);
 }
 async function stop() {
 	if (browser) await browser.close().catch(() => {});
@@ -139,6 +172,28 @@ async function stop() {
 	}
 	page = undefined;
 	browser = undefined;
+}
+async function assertNoPlaintextPasswords() {
+	const needles = [
+		"vcs-e2e-first-input-6a9d",
+		"vcs-e2e-only-remembered-47d631",
+		"vcs-e2e-session-only-8912",
+	].flatMap((value) => [Buffer.from(value), Buffer.from(value, "utf16le")]);
+	async function walk(dir) {
+		for (const entry of await readdir(dir, { withFileTypes: true })) {
+			const file = join(dir, entry.name);
+			if (entry.isDirectory()) await walk(file);
+			else if (entry.isFile()) {
+				const bytes = await readFile(file);
+				assert.ok(
+					needles.every((needle) => !bytes.includes(needle)),
+					"Synthetic credential must not appear as plaintext in the isolated vault/profile",
+				);
+			}
+		}
+	}
+	await walk(vault);
+	await walk(profile);
 }
 async function confirmButton(name) {
 	for (let i = 0; i < 100; i++) {
@@ -286,7 +341,75 @@ try {
 	assert.deepEqual(savedSettings, {
 		url: server.url,
 		username: "",
-		mock: true,
+		passwordMode: "session",
+		secretName: "",
+		credentialScope: "",
+	});
+	const remember = settingsPage
+		.locator(".setting-item")
+		.filter({
+			has: settingsPage.locator(".setting-item-name", {
+				hasText: /^记住密码$/,
+			}),
+		})
+		.locator(".checkbox-container");
+	assert.equal(
+		await settingsPage
+			.getByRole("button", { name: "链接…", exact: true })
+			.count(),
+		0,
+	);
+	await password.fill("vcs-e2e-first-input-6a9d");
+	assert.equal(await password.getAttribute("type"), "password");
+	assert.deepEqual(
+		await password.evaluate((el) =>
+			["copy", "cut"].map((type) => {
+				const e = new Event(type, { cancelable: true });
+				el.dispatchEvent(e);
+				return e.defaultPrevented;
+			}),
+		),
+		[true, true],
+	);
+	await remember.click();
+	console.log("E2E: remember clicked");
+	await page.waitForFunction(
+		() =>
+			app.plugins.plugins["vault-content-sync"].host.settings.passwordMode ===
+			"secret",
+	);
+	await password.fill("vcs-e2e-only-remembered-47d631");
+	console.log("E2E: remembered password edited");
+	await password.blur();
+	console.log("E2E: remembered password blurred");
+	await page.waitForFunction(() => {
+		const h = app.plugins.plugins["vault-content-sync"].host;
+		return (
+			h.password === "vcs-e2e-only-remembered-47d631" &&
+			app.secretStorage.getSecret(h.settings.secretName) ===
+				"vcs-e2e-only-remembered-47d631"
+		);
+	});
+	const rememberedName = await page.evaluate(
+		() => app.plugins.plugins["vault-content-sync"].host.settings.secretName,
+	);
+	assert.match(rememberedName, /^vault-content-sync-/);
+	assert.equal(
+		await page.evaluate(
+			() =>
+				app.plugins.plugins["vault-content-sync"].host.password ===
+				"vcs-e2e-only-remembered-47d631",
+		),
+		true,
+	);
+	await page.evaluate(() =>
+		app.plugins.plugins["vault-content-sync"].host.save(),
+	);
+	const rememberedSettings = await readFile(join(plugin, "data.json"), "utf8");
+	assert.ok(!rememberedSettings.includes("vcs-e2e-only-remembered-47d631"));
+	assert.equal(JSON.parse(rememberedSettings).passwordMode, "secret");
+	await settingsPage.screenshot({
+		path: join(artifactRoot, "obsidian-remember-password.png"),
 	});
 	const settingNames = await page.evaluate(() => {
 		const tab = app.setting.pluginTabs.find(
@@ -299,11 +422,118 @@ try {
 	});
 	assert.ok(settingNames.some((item) => item.aliases?.includes("WebDAV")));
 	assert.ok(settingNames.some((item) => item.aliases?.includes("password")));
+	assert.deepEqual(
+		settingNames.map((item) => item.name),
+		[
+			"WebDAV 目录 URL",
+			"用户名",
+			"密码",
+			"记住密码",
+			"验证并开启同步",
+			"测试连接",
+		],
+		"Settings expose connection controls and explicit synthetic write verification",
+	);
 	await settingsPage.screenshot({
 		path: join(artifactRoot, "obsidian-settings.png"),
 	});
-	await password.fill("");
 	await page.evaluate(() => app.setting.close());
+	await stop();
+	await assertNoPlaintextPasswords();
+	await start();
+	assert.equal(
+		await page.evaluate(
+			() =>
+				app.plugins.plugins["vault-content-sync"].host.password ===
+				"vcs-e2e-only-remembered-47d631",
+		),
+		true,
+		"Remembered secret survives real process restart",
+	);
+	// Verify real settings callbacks with a save fault, then a clear and restart.
+	await page.evaluate(() => {
+		app.setting.open();
+		app.setting.openTabById("vault-content-sync");
+		const p = app.plugins.plugins["vault-content-sync"];
+		p.reviewSaveData = p.saveData;
+		p.saveData = async () => {
+			throw new Error("Synthetic save failure");
+		};
+	});
+	let clearPage;
+	for (let i = 0; i < 100 && !clearPage; i++) {
+		for (const candidate of browser.contexts().flatMap((c) => c.pages()))
+			if (await candidate.locator('input[type="password"]').isVisible())
+				clearPage = candidate;
+		if (!clearPage) await sleep(100);
+	}
+	assert.ok(clearPage, "Reopened settings must be visible");
+	const clearSettings = clearPage.locator(".vertical-tab-content-container");
+	const rememberRow = clearSettings.locator(".setting-item").filter({
+		has: clearPage.locator(".setting-item-name", { hasText: /^记住密码$/ }),
+	});
+	await rememberRow.locator(".checkbox-container").click();
+	await rememberRow.getByText("保存失败，请重试。", { exact: true }).waitFor();
+	assert.equal(
+		await rememberRow
+			.locator(".checkbox-container")
+			.evaluate((el) => el.classList.contains("is-enabled")),
+		true,
+	);
+	await page.evaluate(() => {
+		const p = app.plugins.plugins["vault-content-sync"];
+		p.saveData = p.reviewSaveData;
+		delete p.reviewSaveData;
+	});
+	const clearedPassword = clearSettings.locator('input[type="password"]');
+	await clearedPassword.fill("");
+	await clearedPassword.blur();
+	await page.waitForFunction(
+		() =>
+			app.plugins.plugins["vault-content-sync"].host.settings.passwordMode ===
+			"session",
+	);
+	await rememberRow
+		.getByText("仅本次使用，重启后需重新填写。", { exact: true })
+		.waitFor();
+	await page.evaluate(() => app.setting.close());
+	await stop();
+	await start();
+	assert.equal(
+		await page.evaluate(
+			() => app.plugins.plugins["vault-content-sync"].host.password,
+		),
+		"",
+		"Cleared saved password must not return after restart",
+	);
+	await page.evaluate(async () => {
+		const h = app.plugins.plugins["vault-content-sync"].host;
+		await h.rememberPassword(false);
+		h.password = "vcs-e2e-session-only-8912";
+		await h.save();
+	});
+	assert.ok(
+		!(await readFile(join(plugin, "data.json"), "utf8")).includes(
+			"vcs-e2e-session-only-8912",
+		),
+	);
+	await stop();
+	await assertNoPlaintextPasswords();
+	await start();
+	assert.equal(
+		await page.evaluate(
+			() => app.plugins.plugins["vault-content-sync"].host.password,
+		),
+		"",
+	);
+	assert.equal(
+		await page.evaluate(
+			(name) => app.secretStorage.getSecret(name),
+			rememberedName,
+		),
+		"",
+		"Turning remember off clears the plugin-owned stored password",
+	);
 	assert.equal(server.counters.get, 0);
 	assert.equal(server.counters.put, 0);
 	await page.evaluate(async () => {
@@ -312,6 +542,122 @@ try {
 		await app.workspace.getLeaf(false).openFile(file);
 	});
 	await open(true);
+	// Incremental refresh transfers no unchanged bodies; full verification is explicit.
+	const coldBodies = server.counters.bodies;
+	await refresh();
+	assert.equal(server.counters.bodies, coldBodies);
+	assert.ok(server.counters.notModified >= 3);
+	assert.match(
+		await page.locator(".ocs-summary").getAttribute("title"),
+		/增量核验.*读取 0 B/,
+	);
+	await page.screenshot({
+		path: join(artifactRoot, "obsidian-incremental.png"),
+	});
+	server.put("conflict.md", "remote choice");
+	await refresh();
+	assert.equal(
+		server.counters.bodies,
+		coldBodies + 1,
+		"Only the changed validator transfers a body",
+	);
+	await menuAction("完整核验所有文件");
+	await page.waitForFunction(() =>
+		document
+			.querySelector(".ocs-summary")
+			?.getAttribute("title")
+			?.startsWith("完整核验"),
+	);
+	assert.equal(server.counters.bodies, coldBodies + 4);
+	await page.screenshot({
+		path: join(artifactRoot, "obsidian-full-verification.png"),
+	});
+	await refresh();
+	assert.equal(server.counters.bodies, coldBodies + 4);
+	await page.evaluate(() =>
+		app.commands.executeCommandById("vault-content-sync:verify-full"),
+	);
+	await page.waitForFunction(() =>
+		document
+			.querySelector(".ocs-summary")
+			?.getAttribute("title")
+			?.startsWith("完整核验"),
+	);
+	assert.equal(
+		server.counters.bodies,
+		coldBodies + 7,
+		"Full command reads all bodies",
+	);
+	await page.evaluate(() => {
+		app.plugins.plugins["vault-content-sync"].host.password =
+			"synthetic-cache-invalidation";
+	});
+	await refresh();
+	assert.equal(
+		server.counters.bodies,
+		coldBodies + 10,
+		"Credential changes invalidate shared session cache",
+	);
+	// Root authentication failures must replace old successful/unknown previews.
+	const authBefore = { ...server.counters };
+	await page.evaluate(() => {
+		const h = app.plugins.plugins["vault-content-sync"].host;
+		h.settings.username = "synthetic-user";
+		h.clearCredentials();
+	});
+	await page.getByRole("button", { name: "核验内容", exact: true }).click();
+	await page
+		.locator(".ocs-status")
+		.filter({ hasText: "尚未填写密码" })
+		.waitFor();
+	assert.equal(await page.locator(".ocs-row, .ocs-summary").count(), 0);
+	assert.deepEqual(
+		server.counters,
+		authBefore,
+		"Missing password performs no requests",
+	);
+	await page.evaluate(() => {
+		app.plugins.plugins["vault-content-sync"].host.password =
+			"synthetic-invalid";
+	});
+	server.hooks.unauthorized = "";
+	await page.getByRole("button", { name: "核验内容", exact: true }).click();
+	await page
+		.locator(".ocs-status")
+		.filter({ hasText: "认证失败（HTTP 401）" })
+		.waitFor();
+	assert.equal(await page.locator(".ocs-row, .ocs-summary").count(), 0);
+	assert.equal(server.counters.put + server.counters.delete, 0);
+	await page.screenshot({
+		path: join(artifactRoot, "obsidian-auth-failure.png"),
+	});
+	server.hooks.unauthorized = null;
+	await page.evaluate(() => {
+		const h = app.plugins.plugins["vault-content-sync"].host;
+		h.settings.username = "";
+		h.clearCredentials();
+	});
+	await refresh();
+	server.hooks.unauthorized = "conflict.md";
+	await page
+		.getByRole("button", { name: "比较内容：conflict.md", exact: true })
+		.click();
+	await page
+		.locator(".ocs-status")
+		.filter({ hasText: "认证失败（HTTP 401）" })
+		.waitFor();
+	assert.equal(await page.locator(".ocs-row, .ocs-summary").count(), 0);
+	server.hooks.unauthorized = null;
+	await refresh();
+	server.hooks.unauthorized = "same.md";
+	await page.getByRole("button", { name: "核验内容", exact: true }).click();
+	await page
+		.locator(".ocs-status")
+		.filter({ hasText: "认证失败（HTTP 401）" })
+		.waitFor();
+	assert.equal(await page.locator(".ocs-row, .ocs-summary").count(), 0);
+	server.hooks.unauthorized = null;
+	await refresh();
 	const configuration = await mainPage.evaluate(() => {
 		const engine = app.plugins.plugins["vault-content-sync"].host.engine();
 		return {
@@ -324,7 +670,7 @@ try {
 	assert.deepEqual(configuration.remote, [configuration.dir]);
 	assert.equal((await readdir(vault)).includes(".plain-sync"), false);
 	await mainPage.evaluate(() => {
-		app.plugins.plugins["vault-content-sync"].host.settings.mock = false;
+		window.vcsTestWrites = false;
 	});
 	await page.evaluate(() =>
 		app.workspace
@@ -375,7 +721,7 @@ try {
 	await sleep(100);
 	await page.screenshot({ path: join(artifactRoot, "obsidian-readonly.png") });
 	await mainPage.evaluate(() => {
-		app.plugins.plugins["vault-content-sync"].host.settings.mock = true;
+		window.vcsTestWrites = true;
 	});
 	await page.evaluate(() =>
 		app.workspace
@@ -723,7 +1069,7 @@ try {
 	});
 
 	await mainPage.evaluate(() => {
-		app.plugins.plugins["vault-content-sync"].host.settings.mock = false;
+		window.vcsTestWrites = false;
 	});
 	await page.evaluate(() =>
 		app.workspace
@@ -742,7 +1088,7 @@ try {
 		path: join(artifactRoot, "obsidian-sidebar-readonly-conflict.png"),
 	});
 	await mainPage.evaluate(() => {
-		app.plugins.plugins["vault-content-sync"].host.settings.mock = true;
+		window.vcsTestWrites = true;
 	});
 	await page.evaluate(() =>
 		app.workspace
@@ -763,6 +1109,12 @@ try {
 	await page.screenshot({
 		path: join(artifactRoot, "obsidian-merge-conflict.png"),
 	});
+	assert.equal(
+		await page.locator(".ocs-row, .ocs-summary").count(),
+		0,
+		"Failed merge must discard the old plan",
+	);
+	await refresh();
 	await menuAction("采用远端", "merge.md");
 	await confirmButton("应用选择");
 	await page.waitForFunction(() =>
@@ -786,6 +1138,7 @@ try {
 	await start();
 	await open();
 	await menuAction("恢复未完成操作");
+	await confirmButton("开始恢复");
 	await page.waitForFunction(
 		() =>
 			document.querySelector(".ocs-summary")?.textContent.includes("冲突 0") &&
@@ -853,10 +1206,16 @@ try {
 		obsidian: "1.14.4 (visible app title)",
 		checks: [
 			"declarative settings render and are indexed with English search aliases",
-			"invalid endpoint is not saved and password remains session-only",
+			"invalid endpoint is not saved; default session password never persists",
+			"single masked password field and remember toggle; copy/cut blocked; editing saves on blur; encrypted host storage and real restart recovery",
+			"session mode clears the plugin-owned saved value and loses its temporary password after restart",
+			"failed credential config save keeps committed toggle; explicitly clearing saved password survives restart; comparison 401 clears sidebar plan",
+			"isolated vault/profile contain neither UTF-8 nor UTF-16 plaintext test passwords after process exit",
+			"missing password sends no requests; root and mid-read HTTP 401 clear stale previews without unknown-file floods or writes",
 			"opening settings creates no WebDAV requests; explicit connection test sends one Depth 0 request",
 			"connection success, invalid URL and permission error feedback; zero file GET or writes",
 			"live read progress, filename search and status filters",
+			"incremental refresh has zero unchanged bodies; one changed validator reads one body; full menu/command bypass cache; credential changes invalidate cache",
 			"persistent native sidebar; no-baseline distinction and precise overlapping conflict snippets",
 			"read-only mode hides all mutation actions",
 			"light and dark themes, narrow layout without horizontal overflow",
@@ -885,10 +1244,22 @@ try {
 	);
 	console.log(JSON.stringify(result, null, 2));
 } catch (error) {
+	console.error("E2E failure:", error);
 	if (page) {
-		await page.screenshot({ path: join(artifactRoot, "obsidian-failure.png") });
+		await page
+			.screenshot({
+				path: join(artifactRoot, "obsidian-failure.png"),
+				timeout: 5000,
+			})
+			.catch(() => {});
 		console.log(
-			JSON.stringify({ errors, body: await page.locator("body").innerText() }),
+			JSON.stringify({
+				errors,
+				body: await page
+					.locator("body")
+					.innerText({ timeout: 5000 })
+					.catch(() => "Unavailable"),
+			}),
 		);
 	}
 	throw error;

@@ -17,7 +17,9 @@ import {
 	type Store,
 	scan,
 } from "./model";
+import { RecoveryConflict } from "./recovery-conflict";
 import { Journal } from "./state";
+import { VerificationCache, type VerificationMode } from "./verification-cache";
 
 export class PlainEngine {
 	readonly journal: Journal;
@@ -25,6 +27,7 @@ export class PlainEngine {
 		readonly local: Store,
 		readonly remote: Store,
 		root: string,
+		private readonly verificationCache = new VerificationCache(),
 	) {
 		this.journal = new Journal(root, `${local.identity}|${remote.identity}`);
 	}
@@ -32,26 +35,52 @@ export class PlainEngine {
 		if (!this.remote.writable)
 			throw new Error("Write capability unknown; this connection is read-only");
 	}
+	private writing<T>(task: () => Promise<T>) {
+		this.requireWriteMode();
+		return this.journal.locked(() =>
+			this.remote.exclusive ? this.remote.exclusive(task) : task(),
+		);
+	}
 
 	async preview(
 		onProgress?: (
 			progress: ScanProgress & { side: "local" | "remote" },
 		) => void,
+		mode: VerificationMode = "full",
 	): Promise<Preview> {
-		const state = await this.journal.load();
-		const l = await scan(this.local, (progress) =>
-				onProgress?.({ ...progress, side: "local" }),
-			),
-			r = await scan(this.remote, (progress) =>
-				onProgress?.({ ...progress, side: "remote" }),
+		const scope = JSON.stringify([
+			this.local.identity,
+			this.remote.identity,
+			this.local.excludedRoots ?? [],
+			this.remote.excludedRoots ?? [],
+		]);
+		const ticket = this.verificationCache.begin(scope, mode);
+		try {
+			const state = await this.journal.load();
+			const l = await scan(
+				this.local,
+				(progress) => onProgress?.({ ...progress, side: "local" }),
+				ticket.previous?.local,
 			);
-		return plan(state, l, r);
+			const r = await scan(
+				this.remote,
+				(progress) => onProgress?.({ ...progress, side: "remote" }),
+				ticket.previous?.remote,
+			);
+			const result = { ...plan(state, l, r), verificationMode: mode };
+			this.verificationCache.finish(ticket.generation, l, r);
+			return result;
+		} catch (error) {
+			this.verificationCache.finish(ticket.generation);
+			throw error;
+		}
 	}
 	async run(
 		preview: Preview,
 	): Promise<{ completed: number; remaining: number }> {
+		this.verificationCache.clear();
 		this.requireWriteMode();
-		return this.journal.locked(async () => {
+		return this.writing(async () => {
 			const state = await this.journal.load();
 			let completed = 0;
 			if (
@@ -59,7 +88,7 @@ export class PlainEngine {
 				Object.keys(preview.remote.errors).length
 			)
 				throw new Error("Incomplete preview; no mutations allowed");
-			await this.recoverState(state);
+			// Recovery is a separate, explicit operation; a selected-file plan must not resume other paths.
 			const refreshed = new Map(
 				plan(state, preview.local, preview.remote).rows.map((r) => [r.path, r]),
 			);
@@ -91,20 +120,29 @@ export class PlainEngine {
 			return { completed, remaining: Object.keys(state.pending).length };
 		});
 	}
-	async recover() {
+	async recover(confirmed?: ReadonlyMap<string, string>) {
+		this.verificationCache.clear();
 		this.requireWriteMode();
-		return this.journal.locked(async () => {
+		return this.writing(async () => {
 			const state = await this.journal.load();
-			await this.recoverState(state);
+			await this.recoverState(state, confirmed);
 			return state;
 		});
 	}
-	private async recoverState(state: State) {
+	private async recoverState(
+		state: State,
+		confirmed?: ReadonlyMap<string, string>,
+	) {
 		for (const intent of Object.values(state.pending)) {
-			if (intent.blocked) continue;
+			if (
+				intent.blocked ||
+				(confirmed && confirmed.get(intent.path) !== intent.id)
+			)
+				continue;
 			try {
 				await this.finish(state, intent, true);
-			} catch {
+			} catch (error) {
+				if (!(error instanceof RecoveryConflict)) throw error;
 				intent.blocked = true;
 				await this.journal.save(state);
 			}
@@ -121,11 +159,14 @@ export class PlainEngine {
 		return actual;
 	}
 	private async start(state: State, row: Row, desired: string | null) {
+		this.requireWriteMode();
+		this.remote.checkWriteLease?.();
 		const l = await this.verified(this.local, row.path, row.local);
 		const r = await this.verified(this.remote, row.path, row.remote);
 		if (desired !== hashOf(r) && !this.remote.writable)
 			throw new Error("Remote writes disabled: capability unknown");
 		if (desired === hashOf(l) && desired === hashOf(r)) {
+			this.remote.checkWriteLease?.();
 			if (state.baseline[row.path] !== desired) {
 				state.baseline[row.path] = desired;
 				await this.journal.save(state);
@@ -151,6 +192,8 @@ export class PlainEngine {
 		await this.finish(state, intent, false);
 	}
 	private async finish(state: State, intent: Intent, recovery: boolean) {
+		this.requireWriteMode();
+		this.remote.checkWriteLease?.();
 		const source = intent.desired ? this.journal.blob(intent.desired) : null;
 		const localSource = intent.localDesired
 			? this.journal.blob(intent.localDesired)
@@ -159,9 +202,9 @@ export class PlainEngine {
 			localSource &&
 			(await hashFile(localSource))?.hash !== intent.localDesired
 		)
-			throw new Error("Local target version corrupt or missing");
+			throw new RecoveryConflict("Local target version corrupt or missing");
 		if (source && (await hashFile(source))?.hash !== intent.desired)
-			throw new Error("Target version corrupt or missing");
+			throw new RecoveryConflict("Target version corrupt or missing");
 		// Re-read both sides before any resumed mutation. An unexpected edit freezes the intent.
 		const l = await this.local.read(intent.path),
 			r = await this.remote.read(intent.path);
@@ -170,15 +213,20 @@ export class PlainEngine {
 			(intent.phase !== "prepared" && hashOf(r) !== intent.desired) ||
 			(intent.phase === "local" && hashOf(l) !== intent.desired)
 		)
-			throw new Error("Previously confirmed result was edited");
+			throw new RecoveryConflict("Previously confirmed result was edited");
 		if (
 			recovery &&
 			r &&
 			intent.remote &&
 			hashOf(r) !== intent.desired &&
-			r.version !== intent.remote.version
+			r.version !== intent.remote.version &&
+			!(
+				r.hash === intent.remote.hash &&
+				intent.remote.version.startsWith("W/") &&
+				r.version === intent.remote.version.slice(2)
+			)
 		)
-			throw new Error("Remote version changed after interruption");
+			throw new RecoveryConflict("Remote version changed after interruption");
 		const allowed = (now: Seen, before: Seen) =>
 			hashOf(now) === hashOf(before) || hashOf(now) === intent.desired;
 		if (
@@ -186,11 +234,13 @@ export class PlainEngine {
 				!(parked && intent.local && parked.hash === intent.local.hash)) ||
 			!allowed(r, intent.remote)
 		)
-			throw new Error("Interrupted operation conflicts with a newer edit");
+			throw new RecoveryConflict(
+				"Interrupted operation conflicts with a newer edit",
+			);
 		if (hashOf(r) !== intent.desired) {
 			await this.remote.change(intent.path, r, source, intent.id);
 			if (hashOf(await this.remote.read(intent.path)) !== intent.desired)
-				throw new Error("Remote result unconfirmed");
+				throw new RecoveryConflict("Remote result unconfirmed");
 		}
 		intent.phase = "remote";
 		await this.journal.save(state);
@@ -201,7 +251,9 @@ export class PlainEngine {
 				hashOf(local) !== hashOf(intent.local) &&
 				!(recovery && !local && parked?.hash === intent.local?.hash)
 			)
-				throw new Error("Local changed during transfer");
+				throw new RecoveryConflict("Local changed during transfer");
+			this.requireWriteMode();
+			this.remote.checkWriteLease?.();
 			await this.local.change(
 				intent.path,
 				intent.local,
@@ -215,7 +267,8 @@ export class PlainEngine {
 			hashOf(await this.local.read(intent.path)) !== intent.desired ||
 			hashOf(await this.remote.read(intent.path)) !== intent.desired
 		)
-			throw new Error("Final agreement unconfirmed");
+			throw new RecoveryConflict("Final agreement unconfirmed");
+		this.remote.checkWriteLease?.();
 		state.baseline[intent.path] = intent.desired;
 		delete state.pending[intent.path];
 		await this.journal.save(state);
@@ -245,13 +298,14 @@ export class PlainEngine {
 	}
 
 	async resolve(row: Row, choice: "local" | "remote" | "merge") {
+		this.verificationCache.clear();
 		this.requireWriteMode();
 		if (
 			row.kind !== "conflict" ||
 			(row.reason && row.reason !== "Unfinished operation requires recovery")
 		)
 			throw new Error("This conflict requires a new scan or path repair");
-		return this.journal.locked(async () => {
+		return this.writing(async () => {
 			const state = await this.journal.load();
 			await this.verified(this.local, row.path, row.local);
 			await this.verified(this.remote, row.path, row.remote);

@@ -1,5 +1,7 @@
+import { AuthenticationError } from "./auth";
 import { dictionary } from "./validation";
 export const META = ".plain-sync";
+export const PROBE_PREFIX = ".vault-content-sync-check-";
 export const EXCLUDED = [
 	// Defense in depth: also exclude old/default config folders on every device.
 	// The active (possibly custom) Vault.configDir is separately passed as excludedRoots.
@@ -7,6 +9,7 @@ export const EXCLUDED = [
 	".claudian",
 	".git",
 	".sync_state.json",
+	".sync_trash",
 	".DS_Store",
 	META,
 	".trash",
@@ -39,10 +42,16 @@ export interface Listing {
 	folders: string[];
 }
 export interface Store {
+	exclusive?<T>(task: () => Promise<T>): Promise<T>;
+	checkWriteLease?(): void;
 	readonly excludedRoots?: readonly string[];
 	identity: string;
 	list(): Promise<Listing>;
 	read(path: string, archive?: string): Promise<Seen>;
+	scanRead?(
+		path: string,
+		cached?: Seen,
+	): Promise<{ seen: Seen; reused: boolean }>;
 	text(path: string, expected: Seen): Promise<string | null>;
 	change(
 		path: string,
@@ -54,6 +63,7 @@ export interface Store {
 	writable: boolean;
 }
 export interface Scan {
+	reused?: number;
 	files: Record<string, Seen>;
 	excluded: string[];
 	folders: string[];
@@ -77,6 +87,8 @@ export interface State {
 	pending: Record<string, Intent>;
 }
 export interface Preview {
+	baselineUpdates?: number;
+	verificationMode?: "incremental" | "full";
 	rows: Row[];
 	local: Scan;
 	remote: Scan;
@@ -108,7 +120,11 @@ export function excluded(path: string, roots: readonly string[] = []): boolean {
 		return true;
 	return path
 		.split("/")
-		.some((p) => EXCLUDED.some((x) => x.toLowerCase() === p.toLowerCase()));
+		.some(
+			(p) =>
+				p.toLowerCase().startsWith(PROBE_PREFIX) ||
+				EXCLUDED.some((x) => x.toLowerCase() === p.toLowerCase()),
+		);
 }
 export function classify(
 	base: string | null | undefined,
@@ -133,8 +149,10 @@ export interface ScanProgress {
 export async function scan(
 	store: Store,
 	onProgress?: (progress: ScanProgress) => void,
+	previous?: Readonly<Record<string, Seen>>,
 ): Promise<Scan> {
 	const result: Scan = {
+		reused: 0,
 		files: dictionary<Seen>(),
 		excluded: [...(store.excludedRoots ?? [])],
 		folders: [],
@@ -148,6 +166,7 @@ export async function scan(
 		result.folders = listing.folders;
 		let cursor = 0;
 		let completed = 0;
+		let authenticationFailure: AuthenticationError | undefined;
 		onProgress?.({
 			phase: "reading",
 			completed,
@@ -156,15 +175,20 @@ export async function scan(
 		});
 		await Promise.all(
 			[0, 1].map(async () => {
-				while (cursor < listing.files.length) {
+				while (!authenticationFailure && cursor < listing.files.length) {
 					const path = listing.files[cursor++];
 					if (!path) continue;
 					try {
-						const seen = await store.read(path);
+						const { seen, reused } = store.scanRead
+							? await store.scanRead(path, previous?.[path])
+							: { seen: await store.read(path), reused: false };
 						if (!seen) throw new Error("Listed file disappeared");
 						result.files[path] = seen;
-						result.bytes += seen.size;
-					} catch {
+						if (reused) result.reused = (result.reused ?? 0) + 1;
+						else result.bytes += seen.size;
+					} catch (error) {
+						if (error instanceof AuthenticationError)
+							authenticationFailure = error;
 						result.errors[path] = "File could not be fully verified";
 					} finally {
 						completed++;
@@ -178,7 +202,9 @@ export async function scan(
 				}
 			}),
 		);
-	} catch {
+		if (authenticationFailure) throw authenticationFailure;
+	} catch (error) {
+		if (error instanceof AuthenticationError) throw error;
 		result.errors["/"] = "Directory listing incomplete or unavailable";
 	}
 	return result;
@@ -193,6 +219,10 @@ export function plan(state: State, local: Scan, remote: Scan): Preview {
 		...Object.keys(remote.errors),
 	]);
 	const spellings = new Map<string, Set<string>>();
+	const filePaths = new Set([
+		...Object.keys(local.files),
+		...Object.keys(remote.files),
+	]);
 	for (const path of [...paths, ...local.folders, ...remote.folders]) {
 		const parts = path.split("/");
 		for (let i = 1; i <= parts.length; i++) {
@@ -210,6 +240,9 @@ export function plan(state: State, local: Scan, remote: Scan): Preview {
 			r = remote.files[path] ?? null;
 		const parts = path.split("/");
 		const clash =
+			parts.some(
+				(_, i) => i > 0 && filePaths.has(parts.slice(0, i).join("/")),
+			) ||
 			parts.some(
 				(_, i) =>
 					(spellings.get(
@@ -252,6 +285,10 @@ export function plan(state: State, local: Scan, remote: Scan): Preview {
 		rows,
 		local,
 		remote,
+		baselineUpdates: rows.filter(
+			(row) =>
+				row.kind === "equal" && state.baseline[row.path] !== hashOf(row.local),
+		).length,
 		readBytes: local.bytes + remote.bytes,
 		writes: rows.filter((r) =>
 			["upload", "download", "delete-local", "delete-remote"].includes(r.kind),

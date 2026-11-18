@@ -1,12 +1,18 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import * as fs from "node:fs/promises";
-import * as http from "node:http";
-import * as https from "node:https";
+import type { IncomingMessage } from "node:http";
 import type { Readable } from "node:stream";
-import * as timers from "node:timers";
+import { setTimeout as delay } from "node:timers/promises";
+import { AuthenticationError } from "./auth";
 import { collectionUrl, isLoopback } from "./connection";
+import { DavLock } from "./dav-lock";
 import { digest, smallText } from "./files";
+import { request, responseText } from "./http";
+import { permitsWrite, type WriteAccess, writeScope } from "./write-access";
+
+export { request, responseText } from "./http";
+
 import {
 	excluded,
 	type Listing,
@@ -14,70 +20,83 @@ import {
 	type Store,
 	safePath,
 } from "./model";
-import { byteChunks } from "./validation";
 
 export interface DavOptions {
 	url: string;
 	username?: string;
 	password?: string;
 	isolatedMock?: boolean;
+	writeAccess?: WriteAccess;
 	excludedRoots?: readonly string[];
-}
-export function request(
-	url: URL,
-	method: string,
-	headers: Record<string, string> = {},
-	body?: Readable | string,
-	deadlineMs = 120_000,
-): Promise<http.IncomingMessage> {
-	return new Promise((resolve, reject) => {
-		const req = (url.protocol === "https:" ? https : http).request(
-			url,
-			{ method, headers },
-			resolve,
-		);
-		const timer = timers.setTimeout(
-			() => req.destroy(new Error("Request deadline exceeded")),
-			deadlineMs,
-		);
-		req.on("error", reject);
-		req.on("close", () => timers.clearTimeout(timer));
-		if (typeof body === "string") req.end(body);
-		else if (body) {
-			body.on("error", (e) => req.destroy(e));
-			req.on("error", () => body.destroy());
-			req.on("response", (res) => {
-				if ((res.statusCode ?? 500) >= 400) body.destroy();
-			});
-			body.pipe(req);
-		} else req.end();
-	});
-}
-export async function responseText(
-	res: http.IncomingMessage,
-	limit = 16 * 1024 * 1024,
-) {
-	const chunks: Buffer[] = [];
-	let size = 0;
-	for await (const chunk of byteChunks(res)) {
-		size += chunk.length;
-		if (size > limit) {
-			res.destroy();
-			throw new Error("Response exceeds budget");
-		}
-		chunks.push(chunk);
-	}
-	return Buffer.concat(chunks).toString("utf8");
 }
 export class WebDavStore implements Store {
 	readonly root: URL;
 	readonly excludedRoots: readonly string[];
 	readonly identity: string;
 	readonly headers: Record<string, string>;
-	writable = false;
+	private disabled = false;
+	private mock = false;
+	private access?: WriteAccess;
+	private scope: string;
+	private lock?: DavLock;
+	get writable() {
+		return (
+			!this.disabled && (this.mock || permitsWrite(this.access, this.scope))
+		);
+	}
+	set writable(value: boolean) {
+		if (value)
+			throw new Error("Verify write access before enabling synchronization");
+		this.disabled = true;
+	}
+	checkWriteLease() {
+		if (!this.writable) throw new Error("写入验证已失效，请重新验证当前连接。");
+		if (this.mock) return;
+		if (!this.lock) throw new Error("同步写入必须持有独占目录锁。");
+		this.lock.conditions();
+	}
+	async exclusive<T>(task: () => Promise<T>): Promise<T> {
+		if (!this.writable)
+			throw new Error("Write capability unknown; verify this connection first");
+		if (this.mock) return task();
+		if (this.lock) throw new Error("已有同步操作正在运行。");
+		const lock = new DavLock(this.root, this.headers);
+		this.lock = lock;
+		try {
+			return await lock.run(task);
+		} finally {
+			this.lock = undefined;
+		}
+	}
+	/** Compare decoded segments, never decoded separators or string prefixes. */
+	private relativePath(target: URL): string {
+		if (
+			target.origin !== this.root.origin ||
+			target.search ||
+			target.hash ||
+			target.username ||
+			target.password
+		)
+			throw new Error("DAV path outside root");
+		const segments = (url: URL) => {
+			const path = url.pathname.slice(1).replace(/\/$/, "");
+			return path
+				? path.split("/").map((part) => {
+						const value = decodeURIComponent(part);
+						if (value.includes("/")) throw new Error("Encoded path separator");
+						return safePath(value);
+					})
+				: [];
+		};
+		const root = segments(this.root),
+			path = segments(target);
+		if (path.length < root.length || root.some((part, i) => part !== path[i]))
+			throw new Error("DAV path outside root");
+		return path.slice(root.length).join("/");
+	}
 	/** Read collection metadata only: no recursion, file GET, or writes. */
 	async testConnection(): Promise<void> {
-		let res: http.IncomingMessage;
+		let res: IncomingMessage;
 		try {
 			res = await request(
 				this.root,
@@ -95,6 +114,10 @@ export class WebDavStore implements Store {
 			throw new Error("连接失败或超时，请检查网络、地址和服务器证书。");
 		}
 		const status = res.statusCode ?? 0;
+		if (status === 401) {
+			res.destroy();
+			throw new AuthenticationError();
+		}
 		if (status !== 207) {
 			res.destroy();
 			const messages: Record<number, string> = {
@@ -134,11 +157,7 @@ export class WebDavStore implements Store {
 			);
 			if (
 				!target ||
-				target.origin !== this.root.origin ||
-				target.search ||
-				target.hash ||
-				target.pathname.replace(/\/$/, "") !==
-					this.root.pathname.replace(/\/$/, "") ||
+				this.relativePath(target) !== "" ||
 				!statuses.length ||
 				statuses.some(
 					(node) =>
@@ -154,6 +173,8 @@ export class WebDavStore implements Store {
 	}
 	constructor(options: DavOptions) {
 		this.root = collectionUrl(options.url);
+		if (options.username && !options.password)
+			throw new AuthenticationError("尚未填写密码，请在插件设置中输入密码。");
 		this.excludedRoots = (options.excludedRoots ?? []).map(safePath);
 		const loopback = isLoopback(this.root);
 		this.identity = `dav:${this.root.href}:${createHash("sha256")
@@ -164,7 +185,9 @@ export class WebDavStore implements Store {
 					Authorization: `Basic ${Buffer.from(`${options.username}:${options.password ?? ""}`).toString("base64")}`,
 				}
 			: {};
-		this.writable = options.isolatedMock === true && loopback;
+		this.mock = options.isolatedMock === true && loopback;
+		this.access = options.writeAccess;
+		this.scope = writeScope(options);
 	}
 	url(path: string) {
 		safePath(path);
@@ -180,12 +203,20 @@ export class WebDavStore implements Store {
 		headers: Record<string, string> = {},
 		body?: Readable | string,
 	) {
-		return request(
-			path ? this.url(path) : this.root,
+		const target = path ? this.url(path) : this.root;
+		if (method === "PROPFIND" && !target.pathname.endsWith("/"))
+			target.pathname += "/";
+		const response = await request(
+			target,
 			method,
 			{ ...this.headers, ...headers, "Cache-Control": "no-cache" },
 			body,
 		);
+		if (response.statusCode === 401) {
+			response.destroy();
+			throw new AuthenticationError();
+		}
+		return response;
 	}
 	async read(path: string, archive?: string): Promise<Seen> {
 		const res = await this.call(path, "GET");
@@ -201,6 +232,31 @@ export class WebDavStore implements Store {
 		const etag = res.headers.etag ?? "";
 		return { ...value, version: etag };
 	}
+	async scanRead(path: string, cached?: Seen) {
+		// If-None-Match uses weak comparison. Reuse only when the response also
+		// supplies the identical strong validator for the byte representation.
+		if (!cached || !/^"[\x21\x23-\x7e\x80-\xff]*"$/.test(cached.version))
+			return { seen: await this.read(path), reused: false };
+		const res = await this.call(path, "GET", {
+			"If-None-Match": cached.version,
+		});
+		if (res.statusCode === 304) {
+			res.resume();
+			if (res.headers.etag === cached.version)
+				return { seen: { ...cached }, reused: true };
+			return { seen: await this.read(path), reused: false };
+		}
+		if (res.statusCode !== 200) {
+			res.resume();
+			throw new Error(`WebDAV GET HTTP ${res.statusCode}`);
+		}
+		const value = await digest(res, undefined, path);
+		return {
+			seen: { ...value, version: res.headers.etag ?? "" },
+			reused: false,
+		};
+	}
+
 	async text(path: string, expected: Seen) {
 		if (!expected || expected.size > 1024 * 1024) return null;
 		const res = await this.call(path, "GET");
@@ -248,20 +304,7 @@ export class WebDavStore implements Store {
 					?.textContent;
 				if (!href) throw new Error("Missing DAV href");
 				const u = new URL(href, this.root);
-				if (
-					u.origin !== this.root.origin ||
-					u.search ||
-					u.hash ||
-					!u.pathname.startsWith(this.root.pathname)
-				)
-					throw new Error("DAV path outside root");
-				const encoded = u.pathname
-					.slice(this.root.pathname.length)
-					.replace(/\/$/, "");
-				const segments = encoded.split("/").map(decodeURIComponent);
-				if (segments.some((s) => s.includes("/") || s.includes("\\")))
-					throw new Error("Encoded path separator");
-				const path = segments.join("/");
+				const path = this.relativePath(u);
 				const statuses = Array.from(
 					entry.getElementsByTagNameNS("DAV:", "status"),
 				);
@@ -314,14 +357,43 @@ export class WebDavStore implements Store {
 			throw new Error(
 				"Remote writes disabled: atomic server guarantees not established",
 			);
+		const conditions = () => {
+			if (!this.writable)
+				throw new Error("写入验证已失效，请重新验证当前连接。");
+			if (this.mock) return {};
+			if (!this.lock) throw new Error("同步写入必须持有独占目录锁。");
+			return this.lock.conditions();
+		};
+		conditions();
 		if (excluded(path, this.excludedRoots)) throw new Error("Excluded target");
+		// Apache may briefly expose a weak validator immediately after a write.
+		// Wait under the exclusive lock; never promote a weak ETag ourselves.
+		for (
+			let attempt = 0;
+			this.lock &&
+			expected &&
+			!/^"[^"\r\n]+"$/.test(expected.version) &&
+			attempt < 12;
+			attempt++
+		) {
+			await delay(250);
+			conditions();
+			const fresh = await this.read(path);
+			if (!fresh || fresh.hash !== expected.hash)
+				throw new Error("Content changed while waiting for a strong ETag");
+			expected = fresh;
+		}
 		if (expected && !/^"[^"\r\n]+"$/.test(expected.version))
 			throw new Error("Strong ETag required");
 		if (!source && !expected) return;
 		if (source) {
 			const parts = path.split("/");
 			for (let i = 1; i < parts.length; i++) {
-				const res = await this.call(parts.slice(0, i).join("/"), "MKCOL");
+				const res = await this.call(
+					parts.slice(0, i).join("/"),
+					"MKCOL",
+					conditions(),
+				);
 				const status = res.statusCode;
 				res.resume();
 				if (![201, 405].includes(status ?? 0))
@@ -336,12 +408,16 @@ export class WebDavStore implements Store {
 		const res = await this.call(
 			path,
 			source ? "PUT" : "DELETE",
-			headers,
+			{ ...headers, ...conditions() },
 			source
 				? createReadStream(source, { highWaterMark: 64 * 1024 })
 				: undefined,
 		);
 		const status = res.statusCode ?? 0;
+		if (status === 401) {
+			res.destroy();
+			throw new AuthenticationError();
+		}
 		await responseText(res);
 		if (![200, 201, 204].includes(status))
 			throw new Error(

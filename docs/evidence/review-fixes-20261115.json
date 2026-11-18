@@ -1,0 +1,78 @@
+{
+	"date": "2026-11-15",
+	"status": "unreleased development build",
+	"manifestVersion": "0.5.0",
+	"unitTests": 253,
+	"toolFaultTests": 2,
+	"previousUnitTestsRetained": 214,
+	"additionalCases": 39,
+	"checkRelease": true,
+	"demo": true,
+	"isolatedObsidian": {
+		"version": "1.14.4",
+		"platform": "macOS",
+		"passed": true,
+		"errors": [],
+		"checks": [
+			"declarative settings render and are indexed with English search aliases",
+			"invalid endpoint is not saved; default session password never persists",
+			"single masked password field and remember toggle; copy/cut blocked; editing saves on blur; encrypted host storage and real restart recovery",
+			"session mode clears the plugin-owned saved value and loses its temporary password after restart",
+			"failed credential config save keeps committed toggle; explicitly clearing saved password survives restart; comparison 401 clears sidebar plan",
+			"isolated vault/profile contain neither UTF-8 nor UTF-16 plaintext test passwords after process exit",
+			"missing password sends no requests; root and mid-read HTTP 401 clear stale previews without unknown-file floods or writes",
+			"opening settings creates no WebDAV requests; explicit connection test sends one Depth 0 request",
+			"connection success, invalid URL and permission error feedback; zero file GET or writes",
+			"live read progress, filename search and status filters",
+			"persistent native sidebar; no-baseline distinction and precise overlapping conflict snippets",
+			"read-only mode hides all mutation actions",
+			"light and dark themes, narrow layout without horizontal overflow",
+			"preview creates no metadata",
+			"host configuration directory is excluded on both sides",
+			"native preview and execute controls",
+			"cancel confirmation produces zero writes",
+			"main editor comparison tab, aligned diff, lazy raw text, empty persisted view state",
+			"default-closed quick preview; keyboard file menus; settings-only connection test",
+			"quick preview completion preserves focus on same-row actions, another filename and external search",
+			"stale comparison responses cannot overwrite selection or steal keyboard focus",
+			"comparison light/dark/narrow; bounded highlight fallback retains complete text; changed files refuse stale display without writes",
+			"attachment bytes",
+			"explicit conflict resolution",
+			"native text merge: adjacent replacements, exact mixed endings, local updated",
+			"overlap merge refusal leaves both sides unchanged",
+			"lost merge response visible error",
+			"real process restart and idempotent merged-target recovery"
+		]
+	},
+	"review": {
+		"model": "gemini-4-hydrogen-high",
+		"roundsThisTask": 3,
+		"finalScope": "settings, credentials, comparison UI and regression tests; unchanged engine and DAV reviewed in first round",
+		"reportedP1": 0,
+		"reportedP2": 0,
+		"reportedP3": 1,
+		"postReviewCorrection": "Remember-toggle description now resets after clear/scope change; local regression and native E2E passed; no additional external review for this copy-only correction"
+	},
+	"sha256": {
+		"main.js": "23da74b8905e1204d3f56f588fdefc15ae52cfcd2d727ac3807f54e742fdea05",
+		"styles.css": "e4069daab7a5260bde8601db1e247785a35f876f032c28b42cc8b9a01a908293",
+		"manifest.json": "d90d700a4d37fdd79fffcec58fdba9f745a411e025eb170683ffd3faa56b86f9"
+	},
+	"installationFilesMatchIsolatedTest": true,
+	"developmentZip": {
+		"file": "dist/vault-content-sync-review-fixes-dev-20261115.zip",
+		"sha256": "0920d502330f0d47e77dc3df96239bb3fe3246a9bf661f4d0840783f64ef7584"
+	},
+	"scope": {
+		"realVaultModified": false,
+		"realVaultInstalled": false,
+		"realWebdavAccessed": false,
+		"published": false,
+		"externalWriteGuardUnchanged": true,
+		"stateFormat": 2
+	},
+	"notVerified": [
+		"Windows and Linux native keyrings",
+		"forced application exit while settings save is pending"
+	]
+}

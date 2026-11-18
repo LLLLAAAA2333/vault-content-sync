@@ -95,3 +95,21 @@ it("refuses unsafe configuration roots instead of weakening exclusions", async (
 		).toThrow("Unsafe");
 	}
 });
+
+it("excludes the previous sync client's trash on both sides and in old baselines", async () => {
+	const s = await setup();
+	await mkdir(join(s.a, ".sync_trash"));
+	await writeFile(join(s.a, ".sync_trash/local.md"), "discarded");
+	s.server.dirs.add(".sync_trash");
+	s.server.put(".sync_trash/remote.md", "discarded");
+	const state = await s.A.journal.load();
+	state.baseline[".sync_trash/prior.md"] = "a".repeat(64);
+	await s.A.journal.save(state);
+	const plan = await s.A.preview();
+	expect(plan.rows.find((r) => r.path === ".sync_trash/prior.md")?.kind).toBe(
+		"excluded",
+	);
+	expect(plan.writes).toBe(0);
+	expect(plan.readBytes).toBe(0);
+	expect(s.server.counters.get).toBe(0);
+});

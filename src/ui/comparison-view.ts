@@ -1,4 +1,5 @@
 import { ItemView } from "obsidian";
+import { AuthenticationError } from "../sync/auth";
 import type { PlainEngine } from "../sync/engine";
 import type { Row } from "../sync/model";
 import { type ComparedText, describeConflict } from "./conflict-detail";
@@ -57,12 +58,25 @@ export class ComparisonView extends ItemView {
 					: "本地与远端的共享内容；本机 updated 不参与比较。",
 			);
 			this.renderTexts(texts);
-		} catch {
+		} catch (error) {
 			if (request !== this.request) return;
+			let failure = error;
+			try {
+				if (!stillCurrent()) {
+					message.setText("预览或密码已改变，请重新核验后再选择文件。");
+					message.addClass("is-error");
+					return;
+				}
+			} catch (currentError) {
+				failure = currentError;
+			}
 			message.setText(
-				"无法读取当前版本，文件或连接可能已变化。请重新核验后再选择文件。",
+				failure instanceof AuthenticationError
+					? failure.message
+					: "无法读取当前版本，文件或连接可能已变化。请重新核验后再选择文件。",
 			);
 			message.addClass("is-error");
+			if (failure instanceof AuthenticationError) throw failure;
 		}
 	}
 	private renderTexts(texts: ComparedText) {

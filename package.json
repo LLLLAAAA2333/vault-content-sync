@@ -1,6 +1,6 @@
 {
 	"name": "vault-content-sync",
-	"version": "0.5.0",
+	"version": "0.6.0",
 	"description": "Desktop Obsidian plugin for WebDAV content verification and conservative three-way text merging",
 	"private": true,
 	"type": "module",
@@ -18,6 +18,8 @@
 		"test": "vitest run && node --test tools/*.test.mjs",
 		"demo": "node tools/demo.mjs",
 		"e2e": "node tools/obsidian-e2e.mjs",
+		"test:webdav": "pnpm build && node tools/real-webdav.mjs",
+		"e2e:webdav": "node tools/real-webdav-ui.mjs",
 		"probe": "node tools/probe.mjs",
 		"check:release": "pnpm check && node tools/check-release.mjs",
 		"lint:community": "eslint src --max-warnings 1"
@@ -29,14 +31,15 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.5.9",
 		"@types/node": "22.20.1",
-		"esbuild": "0.25.12",
-		"eslint": "10.14.0",
+		"esbuild": "0.28.2",
+		"eslint": "10.15.0",
 		"eslint-plugin-obsidianmd": "0.5.1",
 		"jsdom": "30.1.2",
-		"obsidian": "1.13.1",
+		"obsidian": "1.14.4",
 		"playwright-core": "1.63.0",
 		"typescript": "6.0.3",
 		"typescript-eslint": "8.72.2",
-		"vitest": "4.1.11"
+		"vite": "8.1.6",
+		"vitest": "4.1.12"
 	}
 }

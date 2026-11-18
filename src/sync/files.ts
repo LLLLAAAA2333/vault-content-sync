@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { type BigIntStats, constants } from "node:fs";
 import * as fs from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
@@ -89,6 +89,9 @@ export async function digest(
 		}
 	}
 }
+function fileStamp(st: BigIntStats): string {
+	return `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}:${st.ctimeNs}:${st.birthtimeNs}:${st.mode}`;
+}
 export async function hashFile(
 	path: string,
 	archive?: string,
@@ -102,22 +105,20 @@ export async function hashFile(
 		});
 	if (!h) return null;
 	try {
-		const before = await h.stat();
+		const before = await h.stat({ bigint: true });
 		if (!before.isFile()) throw new Error("Not a regular file");
 		const value = await digest(
 			h.createReadStream({ autoClose: false, highWaterMark: 64 * 1024 }),
 			archive,
 			logicalPath,
 		);
-		const after = await h.stat();
+		const after = await h.stat({ bigint: true });
 		if (
-			before.size !== after.size ||
-			before.mtimeMs !== after.mtimeMs ||
-			before.ctimeMs !== after.ctimeMs ||
-			value.size !== after.size
+			fileStamp(before) !== fileStamp(after) ||
+			BigInt(value.size) !== after.size
 		)
 			throw new Error("File changed during read");
-		return { ...value, version: `${after.dev}:${after.ino}:${after.ctimeMs}` };
+		return { ...value, version: fileStamp(after) };
 	} finally {
 		await h.close();
 	}
@@ -235,6 +236,20 @@ export class LocalStore implements Store {
 		if (excluded(path, this.excludedRoots)) throw new Error("Excluded target");
 		return hashFile(await this.path(path), archive, path);
 	}
+	async scanRead(path: string, cached?: Seen) {
+		if (excluded(path, this.excludedRoots)) throw new Error("Excluded target");
+		const stat = async () => fs.lstat(await this.path(path), { bigint: true });
+		const before = await stat();
+		if (!before.isFile()) throw new Error("Not a regular file");
+		if (cached && cached.version === fileStamp(before))
+			return { seen: { ...cached }, reused: true };
+		const seen = await this.read(path);
+		const after = await stat();
+		if (!seen || !after.isFile() || seen.version !== fileStamp(after))
+			throw new Error("File changed during scan");
+		return { seen, reused: false };
+	}
+
 	async text(path: string, expected: Seen) {
 		if (excluded(path, this.excludedRoots)) throw new Error("Excluded target");
 		return textFile(await this.path(path), expected);

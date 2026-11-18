@@ -36,7 +36,13 @@ describe("untrusted persisted values", () => {
 			[],
 			{ url: 12, username: {}, mock: "true" },
 		]) {
-			expect(loadSettings(raw)).toEqual({ url: "", username: "", mock: false });
+			expect(loadSettings(raw)).toEqual({
+				url: "",
+				username: "",
+				passwordMode: "session",
+				secretName: "",
+				credentialScope: "",
+			});
 		}
 		expect(
 			loadSettings({
@@ -48,7 +54,9 @@ describe("untrusted persisted values", () => {
 		).toEqual({
 			url: "https://dav.example.test/notes/",
 			username: "user",
-			mock: true,
+			passwordMode: "session",
+			secretName: "",
+			credentialScope: "",
 		});
 	});
 	it("preserves valid format 2 fields and creates prototype-free maps", () => {

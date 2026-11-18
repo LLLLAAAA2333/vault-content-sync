@@ -1,0 +1,23 @@
+{
+	"installed": true,
+	"version": "0.5.0 development",
+	"changed": ["main.js"],
+	"sha256": {
+		"main.js": "5120d344d2de6b2dc978dec5002d3d9b913d57fd2901c099d1a6b26e6d6dcb4b",
+		"manifest.json": "d90d700a4d37fdd79fffcec58fdba9f745a411e025eb170683ffd3faa56b86f9",
+		"styles.css": "e4069daab7a5260bde8601db1e247785a35f876f032c28b42cc8b9a01a908293"
+	},
+	"otherPluginFilesUnchanged": true,
+	"syncExecuted": false,
+	"reloadVerified": false,
+	"isolatedEvidence": "artifacts/obsidian-1794726174013/obsidian-e2e.json",
+	"tests": {
+		"unit": 253,
+		"toolFault": 2,
+		"check": true,
+		"isolatedObsidian": true,
+		"errors": 0
+	},
+	"archive": "dist/vault-content-sync-settings-dev-20261115.zip",
+	"archiveSha256": "0aa0030ad00f568f88fb19998f7653800a0dcd674bb8d377b4f26f255fd094db"
+}

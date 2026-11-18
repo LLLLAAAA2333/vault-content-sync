@@ -1,0 +1,88 @@
+{
+	"date": "2026-11-15",
+	"scope": "Zed-inspired visual styling; plugin logic bundle unchanged",
+	"passed": true,
+	"checks": {
+		"pnpm check": "passed",
+		"pnpm e2e:webdav": "passed",
+		"lightDarkNarrow": "rendered and visually inspected",
+		"pageErrors": []
+	},
+	"appearance": {
+		"light": {
+			"background": [230, 232, 238],
+			"labels": [
+				{
+					"selector": ".ocs-group-heading",
+					"color": [80, 83, 89],
+					"contrast": 6.296015521834609,
+					"size": "12px",
+					"weight": "400"
+				},
+				{
+					"selector": ".ocs-file-button",
+					"color": [64, 70, 85],
+					"contrast": 7.7033841158846945,
+					"size": "12px",
+					"weight": "400"
+				},
+				{
+					"selector": ".ocs-kind.is-upload",
+					"color": [95, 80, 152],
+					"contrast": 5.552119353413106,
+					"size": "12px",
+					"weight": "400"
+				},
+				{
+					"selector": ".ocs-kind.is-conflict",
+					"color": [174, 57, 76],
+					"contrast": 4.912626871614887,
+					"size": "12px",
+					"weight": "400"
+				}
+			],
+			"buttonRadius": "4px"
+		},
+		"dark": {
+			"background": [49, 51, 56],
+			"labels": [
+				{
+					"selector": ".ocs-group-heading",
+					"color": [185, 186, 189],
+					"contrast": 6.5139995816690694,
+					"size": "12px",
+					"weight": "400"
+				},
+				{
+					"selector": ".ocs-file-button",
+					"color": [192, 195, 203],
+					"contrast": 7.169208011255465,
+					"size": "12px",
+					"weight": "400"
+				},
+				{
+					"selector": ".ocs-kind.is-upload",
+					"color": [181, 171, 222],
+					"contrast": 5.9261554248698305,
+					"size": "12px",
+					"weight": "400"
+				},
+				{
+					"selector": ".ocs-kind.is-conflict",
+					"color": [216, 145, 152],
+					"contrast": 5.070550599955396,
+					"size": "12px",
+					"weight": "400"
+				}
+			],
+			"buttonRadius": "4px"
+		}
+	},
+	"evidence": "artifacts/webdav-ui-1794732162147",
+	"dailyVaultTouched": false,
+	"bundleSha256": {
+		"main.js": "01087775c77f629efca0ad1c6bdbb1e1cb1a0c4a1466fd3c1256200ad9d3a47b",
+		"manifest.json": "d90d700a4d37fdd79fffcec58fdba9f745a411e025eb170683ffd3faa56b86f9",
+		"styles.css": "bd4a06cde14cad8ae69e7d443f037daa28f07d864d817caf004a1661741d73a6"
+	}
+}

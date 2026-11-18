@@ -28,11 +28,49 @@ const entry =
 const xml = (body = entry) =>
 	`<d:multistatus xmlns:d="DAV:">${body}</d:multistatus>`;
 
+it.each(["%e7%ac%94%e8%ae%b0", "%E7%AC%94%E8%AE%B0", "笔记"])(
+	"accepts equivalent Unicode root href %s",
+	async (encoded) => {
+		const url = await serve((_req, res) =>
+			res.writeHead(207).end(xml(entry.replace("/notes/", `/${encoded}/`))),
+		);
+		url.pathname = "/笔记/";
+		const dav = new WebDavStore({ url: url.href });
+		await dav.testConnection();
+		expect((await dav.list()).files).toEqual([]);
+	},
+);
+
+it.each([
+	"/notes-other/",
+	"/notes%2fother/",
+	"/notes%5cother/",
+	"/notes/%2f/",
+	"/notes/%5c/",
+	"/notes/%00/",
+	"/notes/%zz/",
+	"/notes/%2e%2e/outside/",
+])("still rejects unsafe or mismatched href %s", async (href) => {
+	const url = await serve((_req, res) =>
+		res.writeHead(207).end(xml(entry.replace("/notes/", href))),
+	);
+	const dav = new WebDavStore({ url: url.href });
+	await expect(dav.testConnection()).rejects.toThrow();
+	await expect(dav.list()).rejects.toThrow();
+});
+
 it("probes exactly the configured collection with Depth 0 and no file or state access", async () => {
 	const s = await setup();
 	s.server.put("nested/private.md", "synthetic content");
 	await s.remote.testConnection();
-	expect(s.server.counters).toEqual({ get: 0, put: 0, delete: 0, propfind: 1 });
+	expect(s.server.counters).toEqual({
+		get: 0,
+		put: 0,
+		delete: 0,
+		propfind: 1,
+		bodies: 0,
+		notModified: 0,
+	});
 	expect(await readdir(s.a)).toEqual([]);
 	const calls: { method?: string; path?: string; depth?: string | string[] }[] =
 		[];
@@ -44,7 +82,7 @@ it("probes exactly the configured collection with Depth 0 and no file or state a
 	expect(calls).toEqual([{ method: "PROPFIND", path: "/notes/", depth: "0" }]);
 });
 it.each([
-	[401, "身份验证失败"],
+	[401, "认证失败"],
 	[403, "没有访问权限"],
 	[404, "目录不存在"],
 	[405, "不支持 WebDAV"],

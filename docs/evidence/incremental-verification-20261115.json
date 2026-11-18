@@ -1,0 +1,34 @@
+{
+	"installed": true,
+	"version": "0.5.0 development",
+	"changed": ["main.js"],
+	"sha256": {
+		"main.js": "717a932f3d53c91a2287a10d5f81389bf88b9b7249bed1667810ae4e80817aae",
+		"manifest.json": "d90d700a4d37fdd79fffcec58fdba9f745a411e025eb170683ffd3faa56b86f9",
+		"styles.css": "e4069daab7a5260bde8601db1e247785a35f876f032c28b42cc8b9a01a908293"
+	},
+	"otherPluginFilesUnchanged": true,
+	"enabledListUnchanged": true,
+	"syncExecuted": false,
+	"reloadVerified": false,
+	"isolatedEvidence": "artifacts/obsidian-1794727250681/obsidian-e2e.json",
+	"tests": {
+		"unit": 280,
+		"incrementalNew": 27,
+		"toolFault": 2,
+		"checkRelease": true,
+		"demo": true,
+		"isolatedObsidian": true,
+		"errors": 0
+	},
+	"archive": "dist/vault-content-sync-incremental-dev-20261115.zip",
+	"archiveSha256": "d041a38930e5ba37a21026d1f041c04c52c88278abba48c5268a893d78dca6bb",
+	"scope": "Session-only digests; remote conditional GET requires same strong ETag; manual full bypass; unchanged format 2; no production WebDAV verification",
+	"limitations": [
+		"Remote directory and per-file conditional requests remain",
+		"No persistent cache; reload starts cold",
+		"Missing/weak validators or ignored conditions read full bodies",
+		"Incorrect strong server validators may miss changes until manual full read",
+		"Real server validator quality and Windows/Linux filesystem behavior not verified"
+	]
+}

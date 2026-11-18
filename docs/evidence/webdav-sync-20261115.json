@@ -1,0 +1,39 @@
+{
+	"date": "2026-11-15",
+	"status": "unreleased-development-build",
+	"dailyVaultTouched": false,
+	"externalUserServerContacted": false,
+	"installedIntoDailyVault": false,
+	"service": "Apache 2.4.70 mod_dav_fs, loopback, synthetic Basic authentication",
+	"checks": {
+		"pnpm check": "passed",
+		"pnpm test": {
+			"unitTests": 298,
+			"toolFaultTests": 2,
+			"passed": true
+		},
+		"realWebDav": {
+			"probeChecks": 20,
+			"integrationGroups": 10,
+			"passed": true
+		},
+		"pnpm e2e": "passed, page/console errors 0",
+		"pnpm e2e:webdav": "passed, page errors 0"
+	},
+	"evidence": {
+		"protocol": "artifacts/real-webdav.json",
+		"nativeRegression": "artifacts/obsidian-1794730392851",
+		"nativeWebDav": "artifacts/webdav-ui-1794730522255"
+	},
+	"scope": "New runtime directories only; no system service registered; test processes stopped; original OpenSSL 3 command links restored after installing the Apache test dependency.",
+	"limitations": [
+		"Only services passing exclusive-directory-lock, strong-ETag, conditional-write and interruption checks can write.",
+		"Verification is session-only and revoked on restart or connection/credential changes.",
+		"External user service, Windows and Linux not exercised."
+	],
+	"bundleSha256": {
+		"main.js": "01087775c77f629efca0ad1c6bdbb1e1cb1a0c4a1466fd3c1256200ad9d3a47b",
+		"manifest.json": "d90d700a4d37fdd79fffcec58fdba9f745a411e025eb170683ffd3faa56b86f9",
+		"styles.css": "f6d176e7d13921cb5061c16a477640db5aad9c73bfaeac1aa568211b0ced00c6"
+	}
+}
