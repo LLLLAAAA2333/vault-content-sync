@@ -12,8 +12,6 @@ import { AuthenticationError } from "@/sync/auth";
 import type { PlainEngine } from "@/sync/engine";
 import type { Preview, Row } from "@/sync/model";
 import { loadSettings } from "@/sync/settings";
-import { grantWriteAccess, writeScope } from "@/sync/write-access";
-import * as writeProbe from "@/sync/write-probe";
 import { ComparisonView } from "@/ui/comparison-view";
 import { type PlainHost, PlainPreview, PlainSettings } from "@/ui/view";
 import { Setting } from "./obsidian-stub";
@@ -265,7 +263,7 @@ it("serializes credential and connection changes without binding an old password
 	const remembering = s.host.rememberPassword(true);
 	await vi.waitFor(() => expect(release).toBeDefined());
 	const changing = s.host.updateSettings({ url: "https://other.test/" });
-	expect(() => s.host.testConnection()).toThrow("正在保存");
+	expect(() => s.host.engine()).toThrow("正在保存");
 	release();
 	await remembering;
 	await changing;
@@ -433,41 +431,3 @@ it.each([false, true])(
 		expect(content.textContent).toContain(locked ? "认证失败" : "已改变");
 	},
 );
-
-it("verified writes are session-only and a late verification cannot reopen a changed connection", async () => {
-	const s = await setup();
-	s.host.password = "synthetic";
-	const makeResult = () => ({
-		access: grantWriteAccess(
-			writeScope({ ...s.host.settings, password: s.host.password }),
-		),
-		directory: ".vault-content-sync-check-synthetic",
-		checks: ["synthetic"],
-		verifiedAt: Date.now(),
-	});
-	const spy = vi.spyOn(writeProbe, "verifyWriteAccess");
-	try {
-		spy.mockResolvedValueOnce(makeResult());
-		await s.host.verifyWrites();
-		expect(s.host.writeReady()).toBe(true);
-		expect((await s.restart()).writeReady()).toBe(false);
-		s.host.password = "changed";
-		expect(s.host.writeReady()).toBe(false);
-		const result = makeResult();
-		let release!: () => void;
-		spy.mockImplementationOnce(async () => {
-			await new Promise<void>((done) => {
-				release = done;
-			});
-			return result;
-		});
-		const checking = s.host.verifyWrites();
-		const rejected = expect(checking).rejects.toThrow("连接已改变");
-		s.host.password = "newer";
-		release();
-		await rejected;
-		expect(s.host.writeReady()).toBe(false);
-	} finally {
-		spy.mockRestore();
-	}
-});

@@ -6,7 +6,7 @@ import { DavLock, DavLockedError } from "./dav-lock";
 import { request, responseText } from "./http";
 import { PROBE_PREFIX } from "./model";
 import { type DavOptions, WebDavStore } from "./webdav";
-import { grantWriteAccess, writeScope } from "./write-access";
+import { grantWriteAccess, type WriteMode, writeScope } from "./write-access";
 
 const strong = (etag: string) => /^"[^"\r\n]+"$/.test(etag);
 function locked(result: { status?: number; body: string }) {
@@ -28,6 +28,7 @@ function locked(result: { status?: number; body: string }) {
 export async function verifyWriteAccess(
 	options: DavOptions,
 	current = () => true,
+	mode: WriteMode = "full",
 ) {
 	const parent = new WebDavStore(options);
 	await parent.testConnection();
@@ -36,14 +37,24 @@ export async function verifyWriteAccess(
 	const checks: string[] = [];
 	let step = "创建独立测试目录";
 	const assert = (condition: unknown, label: string) => {
-		if (!condition) throw new Error(label);
+		if (!condition) throw new Error(`未能确认：${label}`);
 		checks.push(label);
+	};
+	const confirmLockDenial = (
+		result: { status?: number; body: string },
+		action: string,
+	) => {
+		if (!locked(result))
+			throw new Error(
+				`服务端未证实拒绝${action}（HTTP ${result.status ?? "未知"}）`,
+			);
+		checks.push(`锁阻止${action}`);
 	};
 	const call = async (
 		name: string,
 		method: string,
 		extra: Record<string, string> = {},
-		body?: string,
+		body?: string | PassThrough,
 	) => {
 		if (!current()) throw new Error("连接已改变，验证已取消。");
 		const url = new URL(
@@ -56,10 +67,10 @@ export async function verifyWriteAccess(
 			{
 				...parent.headers,
 				"Cache-Control": "no-cache",
+				...(typeof body === "string"
+					? { "Content-Length": String(Buffer.byteLength(body)) }
+					: {}),
 				...extra,
-				...(body === undefined
-					? {}
-					: { "Content-Length": String(Buffer.byteLength(body)) }),
 			},
 			body,
 			15_000,
@@ -88,26 +99,124 @@ export async function verifyWriteAccess(
 	};
 	try {
 		assert((await call("", "MKCOL")).status === 201, "新建独立目录");
+		if (mode === "create-only") {
+			const condition = { "If-None-Match": "*" };
+			const created = (status?: number) =>
+				[200, 201, 204].includes(status ?? 0);
+			const name = "子目录/中文 空格%?#.txt";
+			step = "新建与重复提交";
+			assert((await call("子目录", "MKCOL")).status === 201, "创建子目录");
+			assert((await call(name, "GET")).status === 404, "确认路径缺失");
+			assert(
+				created((await call(name, "PUT", condition, "original")).status),
+				"条件新建",
+			);
+			assert(
+				(await call(name, "PUT", condition, "replacement")).status === 412,
+				"拒绝重复新建",
+			);
+			const original = await call(name, "GET");
+			assert(
+				original.status === 200 && original.body === "original",
+				"保留第一次新建的内容",
+			);
+			const listing = await new WebDavStore({
+				...options,
+				url: root.href,
+			}).list();
+			assert(listing.files.includes(name), "编码路径可列出");
+
+			step = "并发新建";
+			const racePath = "concurrent.txt";
+			const contents = ["slow-first", "fast-second"] as const;
+			const slowBody = new PassThrough();
+			const first = call(
+				racePath,
+				"PUT",
+				{
+					...condition,
+					"Content-Length": String(contents[0].length),
+				},
+				slowBody,
+			);
+			slowBody.write("slow-");
+			const results = await Promise.all([
+				first,
+				(async () => {
+					await delay(100);
+					try {
+						return await call(racePath, "PUT", condition, contents[1]);
+					} finally {
+						slowBody.end("first");
+					}
+				})(),
+			]);
+			const winner = results.findIndex((result) => created(result.status));
+			assert(
+				winner !== -1 && results[1 - winner]?.status === 412,
+				"并发同名新建只有一项成功",
+			);
+			const raced = await call(racePath, "GET");
+			assert(
+				raced.status === 200 && raced.body === contents[winner],
+				"并发结果保留成功方内容",
+			);
+
+			step = "中断新建";
+			const stream = new PassThrough();
+			const interrupted = call(
+				"interrupted.txt",
+				"PUT",
+				{ ...condition, "Content-Length": "32" },
+				stream,
+			).catch((error: unknown) => {
+				if (error instanceof AuthenticationError) throw error;
+				return undefined;
+			});
+			stream.write("partial");
+			await delay(100);
+			stream.destroy(new Error("Synthetic interrupted creation"));
+			await interrupted;
+			await delay(100);
+			assert(
+				(await call("interrupted.txt", "GET")).status === 404,
+				"中断新建未留下部分文件",
+			);
+			if (!current()) throw new Error("连接已改变，验证已取消。");
+			return {
+				access: grantWriteAccess(writeScope(options), mode),
+				directory,
+				checks,
+				verifiedAt: Date.now(),
+			};
+		}
 		const lock = new DavLock(root, parent.headers);
 		step = "独占目录锁";
 		await lock.run(async () => {
+			step = "竞争加锁";
 			let competing = false;
 			try {
-				await new DavLock(root, parent.headers).run(async () => {});
+				await new DavLock(root, parent.headers).run(async () => {
+					throw new Error("服务器在已有独占目录锁时接受了第二次加锁");
+				});
 			} catch (error) {
 				if (!(error instanceof DavLockedError)) throw error;
 				competing = true;
 			}
 			assert(competing, "拒绝第二个写入锁");
-			assert(
-				locked(await call("intruder.txt", "PUT", {}, "blocked")),
-				"锁阻止无令牌的新建",
+			step = "目录锁保护";
+			confirmLockDenial(
+				await call("intruder.txt", "PUT", {}, "blocked"),
+				"无令牌的新建",
 			);
 			assert(
 				(await call("intruder.txt", "GET")).status === 404,
 				"被阻止的新建没有留下文件",
 			);
-			assert(locked(await call("intruder-dir", "MKCOL")), "锁保护子目录");
+			confirmLockDenial(
+				await call("intruder-dir", "MKCOL"),
+				"无令牌创建子目录",
+			);
 			const headers = () => lock.conditions();
 			const name = "中文 空格%?#.txt";
 			step = "路径、内容与版本标识";
@@ -142,8 +251,8 @@ export async function verifyWriteAccess(
 					.status === 412,
 				"拒绝重复新建",
 			);
-			assert(locked(await call(name, "PUT", {}, "bad")), "锁阻止无令牌覆盖");
-			assert(locked(await call(name, "DELETE")), "锁阻止无令牌删除");
+			confirmLockDenial(await call(name, "PUT", {}, "bad"), "无令牌覆盖");
+			confirmLockDenial(await call(name, "DELETE"), "无令牌删除");
 			assert(
 				[200, 201, 204].includes(
 					(
@@ -229,8 +338,8 @@ export async function verifyWriteAccess(
 				"带锁条件删除",
 			);
 			assert((await call(name, "GET")).status === 404, "删除结果确认");
+			step = "释放写入锁";
 		});
-		step = "释放写入锁";
 		// Reacquisition proves release. No permission is carried by a report on disk.
 		await new DavLock(root, parent.headers).run(async () => {});
 		if (!current()) throw new Error("连接已改变，验证已取消。");
@@ -243,7 +352,7 @@ export async function verifyWriteAccess(
 	} catch (error) {
 		if (error instanceof AuthenticationError) throw error;
 		throw new Error(
-			`写入验证未通过（${step}）：${error instanceof Error ? error.message : "请求失败"}。保持仅预览；测试目录 ${directory}。`,
+			`WebDAV 写入检测未通过（${step}）：${error instanceof Error ? error.message : "请求失败"}\n测试目录：${directory}`,
 			{ cause: error },
 		);
 	}

@@ -184,6 +184,10 @@ try {
 	}, server.credentials);
 	const sidebar = page.locator(".ocs-sidebar");
 	await sidebar.getByText("仅预览", { exact: true }).waitFor();
+	await sidebar.getByRole("button", { name: "核验内容", exact: true }).click();
+	await sidebar
+		.getByText("待同步 2 · 冲突 1 · 未核实 0", { exact: true })
+		.waitFor();
 	assert.equal((await readdir(vault)).includes(".plain-sync"), false);
 	await sidebar
 		.getByRole("button", { name: "验证并开启同步", exact: true })
@@ -193,9 +197,8 @@ try {
 		.getByText("可同步", { exact: true })
 		.waitFor({ timeout: 30_000 });
 	assert.equal((await readdir(vault)).includes(".plain-sync"), false);
-	await sidebar.getByRole("button", { name: "核验内容", exact: true }).click();
 	await sidebar
-		.getByText("待同步 2 · 冲突 1 · 未核实 0", { exact: true })
+		.getByRole("button", { name: "同步全部（2）", exact: true })
 		.waitFor();
 	const bounds = await sidebar.evaluate((el) => {
 		const panel = el.getBoundingClientRect();

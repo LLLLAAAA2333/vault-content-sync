@@ -21,11 +21,6 @@ import type { PlainEngine } from "../sync/engine";
 import type { Preview, Row, ScanProgress } from "../sync/model";
 import type { SyncSettings } from "../sync/settings";
 import type { VerificationMode } from "../sync/verification-cache";
-import {
-	type ConflictDetail,
-	describeConflict,
-	type Fragment,
-} from "./conflict-detail";
 import { modalHint, openConfirmModal } from "./modal";
 
 export interface PlainHost {
@@ -48,11 +43,14 @@ export interface PlainHost {
 	hasInvalidUrl?: boolean;
 	save(): Promise<void>;
 	engine(): PlainEngine;
-	testConnection(): Promise<void>;
-	writeReady(): boolean;
-	verifyWrites(): Promise<{ directory: string; checks: number }>;
 	openPreview(): Promise<PlainPreview>;
-	openComparison(row: Row): Promise<void>;
+	openComparison(
+		row: Row,
+		actions?: {
+			committed?: () => Promise<void>;
+			refresh?: () => Promise<Row | undefined>;
+		},
+	): Promise<void>;
 	invalidateComparison(): void;
 }
 const labels: Record<Row["kind"], string> = {
@@ -62,55 +60,9 @@ const labels: Record<Row["kind"], string> = {
 	"delete-local": "待删除本地",
 	"delete-remote": "待删除远端",
 	conflict: "冲突",
-	unknown: "未核实",
+	unknown: "读取失败",
 	excluded: "已排除",
 };
-async function checkConnection(host: PlainHost): Promise<string> {
-	if (host.hasInvalidUrl || !host.settings.url)
-		throw new Error("请先在设置中填写有效的 WebDAV 文件夹地址。");
-	const { url, username } = host.settings;
-	const password = host.password;
-	await host.testConnection();
-	if (
-		host.hasInvalidUrl ||
-		url !== host.settings.url ||
-		username !== host.settings.username ||
-		password !== host.password
-	)
-		throw new Error("连接设置已改变，请重新测试。");
-	return "连接正常 · 目录可读，未读取笔记";
-}
-function allowsWrite(host: PlainHost): boolean {
-	return host.writeReady();
-}
-async function confirmWriteVerification(host: PlainHost) {
-	const { url, username } = host.settings;
-	const password = host.password;
-	if (!url || host.hasInvalidUrl)
-		throw new Error("请先保存有效的 WebDAV 地址。");
-	if (
-		!(await openConfirmModal({
-			app: host.app,
-			title: "验证并开启同步",
-			body: [
-				url,
-				"将在此地址下新建独立测试目录，只使用合成文件验证写入锁、覆盖、删除与中断保护。测试目录保留并排除同步，不修改已有笔记。",
-				"通过后，本次连接可执行上传、下载和冲突处理；每次同步仍需查看计划并确认。重启或修改连接后需要重新验证。",
-			],
-			confirmLabel: "开始验证",
-			cancelLabel: "取消",
-		}))
-	)
-		return false;
-	if (
-		host.hasInvalidUrl ||
-		url !== host.settings.url ||
-		username !== host.settings.username ||
-		password !== host.password
-	)
-		throw new Error("连接已改变，请重新确认验证目录。");
-	return true;
-}
 function icon(parent: HTMLElement, name: string, cls = "ocs-file-icon") {
 	const el = parent.createSpan({ cls });
 	el.setAttribute("aria-hidden", "true");
@@ -118,16 +70,12 @@ function icon(parent: HTMLElement, name: string, cls = "ocs-file-icon") {
 	return el;
 }
 
+const isWrite = (row: Row) =>
+	["upload", "download", "delete-local", "delete-remote"].includes(row.kind);
+
 export const SYNC_VIEW_TYPE = "vault-content-sync-changes";
 
 export class PlainPreview extends ItemView {
-	private selected?: {
-		path: string;
-		loading: boolean;
-		detail?: ConflictDetail;
-		error?: string;
-	};
-	private selectionRequest = 0;
 	private collapsedGroups = new Set<string>();
 	private preview?: Preview;
 	private busy = false;
@@ -162,8 +110,6 @@ export class PlainPreview extends ItemView {
 		this.renderContent();
 	}
 	async onClose() {
-		this.selectionRequest++;
-		this.selected = undefined;
 		this.contentEl.empty();
 	}
 	invalidatePreview() {
@@ -171,11 +117,6 @@ export class PlainPreview extends ItemView {
 		this.notice = "";
 		this.comparisonPath = "";
 		this.failure = "";
-		this.selected = undefined;
-		this.selectionRequest++;
-		this.renderContent();
-	}
-	refreshPresentation() {
 		this.renderContent();
 	}
 	private iconButton(
@@ -212,13 +153,8 @@ export class PlainPreview extends ItemView {
 			/* Setup required. */
 		}
 		if (this.host.hasInvalidUrl) address = undefined;
-		const writable = allowsWrite(this.host);
 		const header = this.contentEl.createDiv({ cls: "ocs-sidebar-heading" });
 		header.createEl("h2", { text: "变更" });
-		header.createSpan({
-			cls: "ocs-mode",
-			text: writable ? "可同步" : "仅预览",
-		});
 		const toolbar = this.contentEl.createDiv({ cls: "ocs-toolbar" });
 		const comparable =
 			this.preview?.rows.find((r) => r.path === this.comparisonPath) ??
@@ -287,7 +223,7 @@ export class PlainPreview extends ItemView {
 		this.progress = undefined;
 		if (this.busy) {
 			this.progress = body.createEl("progress", { cls: "ocs-progress" });
-			this.progress.setAttribute("aria-label", "内容核验进度");
+			this.progress.setAttribute("aria-label", "读取变更进度");
 		} else if (this.preview) {
 			this.list = body.createDiv({ cls: "ocs-list" });
 			this.renderRows();
@@ -295,7 +231,7 @@ export class PlainPreview extends ItemView {
 			body.createDiv({
 				cls: "ocs-empty-note",
 				text: address
-					? "核验两端内容，查看文件变化。"
+					? "刷新变更以查看待同步文件。"
 					: "在插件设置中连接 WebDAV。",
 			});
 		}
@@ -316,7 +252,7 @@ export class PlainPreview extends ItemView {
 		target.title = address?.href || "请在插件设置中填写连接信息";
 		new ButtonComponent(endpoint)
 			.setIcon("refresh-cw")
-			.setButtonText("核验内容")
+			.setButtonText("刷新变更")
 			.setDisabled(this.busy || !address)
 			.onClick(() => void this.refresh());
 		if (this.preview) {
@@ -328,54 +264,24 @@ export class PlainPreview extends ItemView {
 			).length;
 			const summary = footer.createDiv({
 				cls: "ocs-summary",
-				text: `待同步 ${this.preview.writes} · 冲突 ${conflicts} · 未核实 ${unknown}`,
+				text: `待同步 ${this.preview.writes} · 冲突 ${conflicts}${unknown ? ` · 读取失败 ${unknown}` : ""}`,
 			});
-			const reused =
-				(this.preview.local.reused ?? 0) + (this.preview.remote.reused ?? 0);
-			summary.title = `${this.preview.verificationMode === "full" ? "完整核验" : "增量核验"} · 复用 ${reused} 项 · 读取 ${readVolume(this.preview.readBytes)}；Markdown 顶层 updated 仅保留本机。`;
+			if (unknown) summary.addClass("is-error");
 		}
 		const operations = footer.createDiv({ cls: "ocs-sync-actions" });
-		if (writable) {
-			const current = this.preview;
-			new ButtonComponent(operations)
-				.setButtonText(
-					current?.writes
-						? `同步全部（${current.writes}）`
-						: current?.baselineUpdates
-							? "确认一致版本"
-							: "同步全部",
-				)
-				.setDisabled(
-					this.busy ||
-						!current ||
-						(!current.writes && !current.baselineUpdates) ||
-						current.rows.some((r) => r.kind === "unknown") ||
-						!current.rows.some(
-							(r) => !["conflict", "unknown", "excluded"].includes(r.kind),
-						),
-				)
-				.onClick(() => {
-					if (current) void this.execute(current);
-				});
-		} else {
-			new ButtonComponent(operations)
-				.setButtonText("验证并开启同步")
-				.setDisabled(this.busy || !address)
-				.onClick(() => void this.enableSync());
-		}
-	}
-	private async enableSync() {
-		try {
-			if (!(await confirmWriteVerification(this.host))) return;
-			await this.work(async () => {
-				await this.host.verifyWrites();
-				this.notice = "验证通过。本次连接已开放同步，请先核验内容。";
+		const current = this.preview;
+		new ButtonComponent(operations)
+			.setButtonText(
+				current?.writes ? `提交变更（${current.writes}）` : "提交变更",
+			)
+			.setDisabled(
+				this.busy ||
+					!current?.writes ||
+					current.rows.some((r) => r.kind === "unknown"),
+			)
+			.onClick(() => {
+				if (current) void this.execute(current);
 			});
-		} catch (error) {
-			this.failure =
-				error instanceof Error ? error.message : "写入验证失败，请重试。";
-			this.renderContent();
-		}
 	}
 	private showMenu(anchor: HTMLElement, row?: Row) {
 		const menu = new Menu();
@@ -383,35 +289,11 @@ export class PlainPreview extends ItemView {
 		if (row) {
 			menu.addItem((item) =>
 				item
-					.setTitle("比较内容")
+					.setTitle(row.kind === "conflict" ? "处理冲突" : "查看差异")
 					.setIcon("columns-2")
 					.onClick(() => void this.openComparison(row)),
 			);
-			if (row.kind === "conflict")
-				menu.addItem((item) =>
-					item
-						.setTitle("快速预览")
-						.setIcon("eye")
-						.setChecked(this.selected?.path === row.path)
-						.onClick(() => void this.showConflict(row)),
-				);
-			if (row.kind === "conflict" && allowsWrite(this.host)) {
-				menu.addSeparator();
-				for (const [choice, label] of [
-					["local", "采用本地"],
-					["remote", "采用远端"],
-					["merge", "合并文本"],
-				] as const)
-					menu.addItem((item) =>
-						item.setTitle(label).onClick(() => void this.resolve(row, choice)),
-					);
-			}
-			if (
-				["upload", "download", "delete-local", "delete-remote"].includes(
-					row.kind,
-				) &&
-				allowsWrite(this.host)
-			) {
+			if (isWrite(row)) {
 				const current = this.preview;
 				menu.addSeparator();
 				menu.addItem((item) =>
@@ -431,15 +313,6 @@ export class PlainPreview extends ItemView {
 		} else {
 			menu.addItem((item) =>
 				item
-					.setTitle("完整核验所有文件")
-					.setIcon("refresh-cw")
-					.setDisabled(
-						this.busy || !this.host.settings.url || !!this.host.hasInvalidUrl,
-					)
-					.onClick(() => void this.refresh("full")),
-			);
-			menu.addItem((item) =>
-				item
 					.setTitle("显示筛选")
 					.setIcon("list-filter")
 					.setChecked(this.filtersOpen)
@@ -448,28 +321,15 @@ export class PlainPreview extends ItemView {
 						this.renderContent();
 					}),
 			);
-			if (allowsWrite(this.host)) {
-				menu.addSeparator();
-				menu.addItem((item) =>
-					item
-						.setTitle("恢复未完成操作")
-						.setIcon("history")
-						.setDisabled(this.busy)
-						.onClick(() => void this.recover()),
-				);
-				const current = this.preview;
-				menu.addItem((item) =>
-					item
-						.setTitle("执行当前计划")
-						.setIcon("check")
-						.setDisabled(
-							!current || current.rows.some((r) => r.kind === "unknown"),
-						)
-						.onClick(() => {
-							if (current) void this.execute(current);
-						}),
-				);
-			}
+			menu.addItem((item) =>
+				item
+					.setTitle("恢复未完成的提交")
+					.setIcon("history")
+					.setDisabled(
+						this.busy || !this.host.settings.url || !!this.host.hasInvalidUrl,
+					)
+					.onClick(() => void this.recover()),
+			);
 		}
 		const rect = anchor.getBoundingClientRect();
 		menu.showAtPosition(
@@ -484,7 +344,7 @@ export class PlainPreview extends ItemView {
 		this.status?.setText(
 			progress.phase === "listing"
 				? `正在列出${side}文件…`
-				: `正在核验${side} · ${progress.completed} / ${progress.total} 个文件 · 已读取 ${readVolume(progress.bytes)}`,
+				: `正在读取${side} · ${progress.completed} / ${progress.total} 个文件 · 已读取 ${readVolume(progress.bytes)}`,
 		);
 		if (this.progress) {
 			if (progress.phase === "listing") this.progress.removeAttribute("value");
@@ -508,7 +368,7 @@ export class PlainPreview extends ItemView {
 		);
 		const groups: [string, Row["kind"][]][] = [
 			["冲突", ["conflict"]],
-			["未核实", ["unknown"]],
+			["读取失败", ["unknown"]],
 			["本地变更", ["upload", "delete-remote"]],
 			["远端变更", ["download", "delete-local"]],
 			["内容一致", ["equal"]],
@@ -550,7 +410,10 @@ export class PlainPreview extends ItemView {
 						cls: "ocs-file-button ocs-filename",
 						text: filename,
 					});
-					trigger.setAttribute("aria-label", `比较内容：${row.path}`);
+					trigger.setAttribute(
+						"aria-label",
+						`${row.kind === "conflict" ? "处理冲突" : "查看差异"}：${row.path}`,
+					);
 					trigger.onclick = () => void this.openComparison(row);
 				} else name.createSpan({ cls: "ocs-filename", text: filename });
 				if (parts.length)
@@ -564,18 +427,6 @@ export class PlainPreview extends ItemView {
 				});
 				if (inspectable) {
 					const actions = item.createDiv({ cls: "ocs-row-actions" });
-					if (row.kind === "conflict") {
-						const quick = this.iconButton(
-							actions,
-							"eye",
-							`快速预览：${row.path}`,
-							() => void this.showConflict(row),
-						);
-						quick.buttonEl.setAttribute(
-							"aria-expanded",
-							String(this.selected?.path === row.path),
-						);
-					}
 					const more = this.iconButton(
 						actions,
 						"ellipsis",
@@ -601,10 +452,6 @@ export class PlainPreview extends ItemView {
 					issue.createEl("summary", { text: "查看原因" });
 					issue.createDiv({ text: reason(row.reason) });
 				}
-				if (this.selected?.path === row.path) {
-					item.addClass("is-selected");
-					this.renderConflict(item);
-				}
 			}
 		}
 		if (!rows.length)
@@ -622,156 +469,58 @@ export class PlainPreview extends ItemView {
 				`显示 ${shown} / ${rows.length} 项，可输入文件名或路径缩小范围。`,
 			);
 	}
-	private refreshConflictRows() {
-		// Keep file controls mounted: a delayed response must not remove whichever
-		// list item the user has reached with the keyboard while it was loading.
-		for (const item of this.list?.querySelectorAll<HTMLElement>(".ocs-row") ??
-			[]) {
-			const quick = Array.from(
-				item.querySelectorAll<HTMLButtonElement>(".ocs-row-actions button"),
-			).find((button) =>
-				button.getAttribute("aria-label")?.startsWith("快速预览："),
-			);
-			if (!quick) continue;
-			const selected =
-				quick.getAttribute("aria-label") === `快速预览：${this.selected?.path}`;
-			quick.setAttribute("aria-expanded", String(selected));
-			item.toggleClass("is-selected", selected);
-			item.querySelector(".ocs-conflict-detail")?.remove();
-			if (selected) this.renderConflict(item);
-		}
-	}
 	private async openComparison(row: Row) {
 		if (this.busy) return;
 		this.comparisonPath = row.path;
 		try {
-			await this.host.openComparison(row);
+			const refresh = async () => {
+				const before = this.preview;
+				if (!before) return undefined;
+				const updated = await this.host
+					.engine()
+					.refreshPaths(before, [row.path]);
+				if (this.preview !== before) return undefined;
+				this.preview = updated;
+				this.renderContent();
+				return updated.rows.find((candidate) => candidate.path === row.path);
+			};
+			await this.host.openComparison(row, {
+				refresh,
+				committed: async () => {
+					try {
+						await refresh();
+					} catch {
+						this.failure = "文件已提交。列表未能更新，请点击「刷新变更」。";
+						this.renderContent();
+					}
+				},
+			});
 		} catch (error) {
 			this.failure =
 				error instanceof AuthenticationError
 					? error.message
-					: "无法打开比较，请重新核验。";
+					: "无法打开比较，请刷新变更。";
 			this.authenticationFailure = error instanceof AuthenticationError;
 			if (this.authenticationFailure) this.preview = undefined;
 			this.renderContent();
 		}
 	}
-	private async showConflict(row: Row) {
-		if (this.busy) return;
-		const request = ++this.selectionRequest;
-		const { url, username } = this.host.settings;
-		if (this.selected?.path === row.path) {
-			this.selected = undefined;
-			this.refreshConflictRows();
-			return;
-		}
-		this.selected = { path: row.path, loading: true };
-		this.refreshConflictRows();
-		try {
-			const password = this.host.password;
-			const texts = await this.host.engine().inspect(row);
-			if (
-				url !== this.host.settings.url ||
-				username !== this.host.settings.username ||
-				password !== this.host.password ||
-				this.host.hasInvalidUrl
-			)
-				throw new Error("Connection changed");
-			if (request !== this.selectionRequest) return;
-			this.selected = {
-				path: row.path,
-				loading: false,
-				detail: describeConflict(texts),
-			};
-		} catch (error) {
-			if (request !== this.selectionRequest) return;
-			if (error instanceof AuthenticationError) {
-				this.failure = error.message;
-				this.authenticationFailure = true;
-				this.preview = undefined;
-				this.renderContent();
-				return;
-			}
-			this.selected = {
-				path: row.path,
-				loading: false,
-				error: "无法读取当前版本，文件可能已变化。请重新核验后再查看。",
-			};
-		}
-		this.refreshConflictRows();
-	}
-	private renderConflict(parent: HTMLElement) {
-		const selected = this.selected;
-		if (!selected) return;
-		const detail = parent.createDiv({ cls: "ocs-conflict-detail" });
-		detail.setAttribute("role", "region");
-		detail.setAttribute("aria-label", `冲突详情：${selected.path}`);
-		const message = detail.createDiv({
-			cls: "ocs-conflict-message",
-			text: selected.loading
-				? "正在读取并定位冲突…"
-				: (selected.error ?? selected.detail?.message ?? ""),
-		});
-		message.setAttribute("role", "status");
-		if (selected.error) message.addClass("is-error");
-		for (const [index, region] of (
-			selected.detail?.fragments ?? []
-		).entries()) {
-			const block = detail.createEl("details", { cls: "ocs-conflict-region" });
-			block.open = index === 0;
-			block.createEl("summary", { text: region.label });
-			this.renderFragment(block, "本地", region.local, "local");
-			this.renderFragment(block, "远端", region.remote, "remote");
-			if (region.base) {
-				const base = block.createEl("details", { cls: "ocs-conflict-base" });
-				base.createEl("summary", { text: "查看共同版本" });
-				this.renderFragment(base, "共同版本", region.base, "base");
-			}
-		}
-		if (selected.detail?.omitted)
-			detail.createDiv({
-				cls: "ocs-conflict-message",
-				text: `另有 ${selected.detail.omitted} 处未展开，请打开完整比较。`,
-			});
-	}
-	private renderFragment(
-		parent: HTMLElement,
-		label: string,
-		value: Fragment,
-		side: string,
-	) {
-		const block = parent.createDiv({ cls: `ocs-fragment is-${side}` });
-		block.createDiv({ cls: "ocs-fragment-label", text: label });
-		block
-			.createEl("pre", { text: value.text || "（此片段为空）" })
-			.setAttribute("aria-label", `${label}冲突片段`);
-		if (value.truncated)
-			block.createDiv({
-				cls: "ocs-fragment-truncated",
-				text: "片段已截断；完整内容见“比较内容”。",
-			});
-	}
 	private async work(task: () => Promise<void>) {
 		if (this.busy) return;
-		this.selectionRequest++;
-		this.selected = undefined;
-		this.host.invalidateComparison();
-		this.preview = undefined;
 		this.busy = true;
 		this.notice = "";
-		this.comparisonPath = "";
 		this.failure = "";
 		this.authenticationFailure = false;
 		this.renderContent();
 		try {
 			await task();
-		} catch (e) {
-			this.authenticationFailure = e instanceof AuthenticationError;
+		} catch (error) {
+			this.authenticationFailure = error instanceof AuthenticationError;
 			if (this.authenticationFailure) this.preview = undefined;
 			this.failure =
-				this.authenticationFailure && e instanceof Error
-					? e.message
-					: `操作已停止：${e instanceof Error ? e.message : "无法完成"}。请重新核验；已有恢复版本会保留。`;
+				error instanceof Error
+					? error.message
+					: "操作未完成，请刷新变更后重试。";
 		} finally {
 			this.busy = false;
 			this.renderContent();
@@ -798,7 +547,7 @@ export class PlainPreview extends ItemView {
 					app: this.app,
 					title: "恢复未完成操作",
 					body: [
-						`将重新核验并尝试完成 ${paths.length} 个未完成操作；发现新修改时停止。`,
+						`将尝试完成 ${paths.length} 个未完成操作；发现新修改时停止。`,
 						...paths.slice(0, 10),
 						...(paths.length > 10 ? ["其余项目可在冲突列表查看。"] : []),
 					],
@@ -813,64 +562,45 @@ export class PlainPreview extends ItemView {
 			});
 		} catch (error) {
 			this.failure =
-				error instanceof Error ? error.message : "无法恢复，请重新核验。";
+				error instanceof Error ? error.message : "无法恢复，请刷新变更。";
 			this.renderContent();
 		}
 	}
-	private async execute(p: Preview, only?: Row) {
-		const plan = only ? { ...p, rows: [only], writes: 1 } : p;
-		const uploads = plan.rows.filter((r) => r.kind === "upload").length;
-		const downloads = plan.rows.filter((r) => r.kind === "download").length;
-		const deletes = plan.rows.filter((r) =>
-			["delete-local", "delete-remote"].includes(r.kind),
-		).length;
+	private async execute(preview: Preview, only?: Row) {
+		const rows = (only ? [only] : preview.rows).filter(isWrite);
+		if (!rows.length || preview.rows.some((row) => row.kind === "unknown"))
+			return;
+		const uploads = rows.filter((row) => row.kind === "upload").length;
+		const downloads = rows.filter((row) => row.kind === "download").length;
+		const deletes = rows.length - uploads - downloads;
 		if (
 			!(await openConfirmModal({
 				app: this.app,
-				title: "执行同步计划",
+				title: "提交变更",
 				body: [
 					...(only ? [only.path] : []),
-					plan.writes
-						? `上传 ${uploads} · 下载 ${downloads} · 删除 ${deletes}。覆盖和删除前保存恢复版本；冲突单独处理。`
-						: "将为已核验一致的文件记录共同版本，用于下次识别修改与删除；不改写笔记正文。",
+					`上传 ${uploads} · 下载 ${downloads} · 删除 ${deletes}`,
 				],
-				confirmLabel: "执行同步",
-				cancelLabel: "返回预览",
-			}))
-		)
-			return;
-		if (this.preview !== p) return this.staleConfirmation();
-		await this.work(async () => {
-			await this.host.engine().run(plan);
-			this.preview = await this.host.preview();
-		});
-	}
-	private async resolve(row: Row, choice: "local" | "remote" | "merge") {
-		const preview = this.preview;
-		if (
-			!(await openConfirmModal({
-				app: this.app,
-				title: "处理冲突",
-				body: [
-					row.path,
-					choice === "merge"
-						? "尝试合并不重叠的文本修改；有重叠则停止。"
-						: "所选共享内容将同步到两端；本机 updated 保留，原始版本保存在本地恢复目录。",
-				],
-				confirmLabel: "应用选择",
+				confirmLabel: "提交",
 				cancelLabel: "取消",
 			}))
 		)
 			return;
-		if (!preview || this.preview !== preview || !preview.rows.includes(row))
-			return this.staleConfirmation();
+		if (this.preview !== preview) return this.staleConfirmation();
 		await this.work(async () => {
-			await this.host.engine().resolve(row, choice);
-			this.preview = await this.host.preview();
+			await this.host.engine().run({ ...preview, rows, writes: rows.length });
+			try {
+				this.preview = await this.host.engine().refreshPaths(
+					preview,
+					rows.map((row) => row.path),
+				);
+			} catch {
+				this.notice = "变更已提交。列表未能更新，请点击「刷新变更」。";
+			}
 		});
 	}
 	private staleConfirmation() {
-		this.failure = "连接或预览已改变，请重新核验后再确认。";
+		this.failure = "连接或预览已改变，请刷新变更后再确认。";
 		this.renderContent();
 	}
 }
@@ -889,8 +619,6 @@ function reason(value: string) {
 	);
 }
 export class PlainSettings extends PluginSettingTab {
-	private connectionSetting?: Setting;
-	private writeSetting?: Setting;
 	private passwordSetting?: Setting;
 	private rememberToggle?: ToggleComponent;
 	private rememberSetting?: Setting;
@@ -974,7 +702,6 @@ export class PlainSettings extends PluginSettingTab {
 			t.inputEl.addEventListener("cut", (event) => event.preventDefault());
 			t.setValue(value).onChange((v) => {
 				this.passwordRevision++;
-				this.invalidateConnection();
 				this.host.password = v;
 			});
 			t.inputEl.addEventListener("blur", () => this.commitPassword(setting));
@@ -1030,12 +757,6 @@ export class PlainSettings extends PluginSettingTab {
 					);
 			});
 	}
-	private invalidateConnection() {
-		this.writeSetting?.setDesc("连接修改后需要重新验证写入能力。");
-		this.connectionSetting?.setDesc(
-			"当前配置尚未测试。只检查目录，不读取笔记、不写入文件。",
-		);
-	}
 	constructor(private host: PlainHost) {
 		super(host.app, host.plugin);
 	}
@@ -1052,7 +773,6 @@ export class PlainSettings extends PluginSettingTab {
 							.setValue(this.host.settings.url)
 							.setPlaceholder("https://dav.example.com/notes/")
 							.onChange(async (v) => {
-								this.invalidateConnection();
 								let url: string;
 								try {
 									url = v.trim() ? collectionUrl(v.trim()).href : "";
@@ -1092,7 +812,6 @@ export class PlainSettings extends PluginSettingTab {
 						t
 							.setValue(this.host.settings.username)
 							.onChange(async (username) => {
-								this.invalidateConnection();
 								await this.persist(
 									setting,
 									() => this.host.updateSettings({ username }),
@@ -1126,7 +845,6 @@ export class PlainSettings extends PluginSettingTab {
 								if (this.syncingToggles.has(toggle)) return;
 								const revision = this.passwordRevision,
 									scope = credentialScope(this.host.settings);
-								this.invalidateConnection();
 								toggle.setDisabled(true);
 								try {
 									await this.host.rememberPassword(enabled);
@@ -1151,62 +869,6 @@ export class PlainSettings extends PluginSettingTab {
 								}
 							});
 					});
-				},
-			},
-			{
-				name: "验证并开启同步",
-				desc: "在独立远端目录验证写入能力，通过后开放本次连接的同步；不会自动同步笔记。",
-				aliases: ["sync", "write", "upload", "download"],
-				render: (setting) => {
-					this.writeSetting = setting;
-					if (this.host.writeReady())
-						setting.setDesc("本次连接可同步；请在侧栏核验内容后执行。");
-					setting.addButton((button) =>
-						button.setButtonText("验证并开启同步").onClick(async () => {
-							button.setDisabled(true);
-							try {
-								if (!(await confirmWriteVerification(this.host))) return;
-								setting.setDesc("正在验证独立测试目录…");
-								const result = await this.host.verifyWrites();
-								setting.setDesc(
-									`验证通过（${result.checks} 项）。本次连接已开放同步。测试目录：${result.directory}`,
-								);
-							} catch (error) {
-								setting.setDesc(
-									error instanceof Error
-										? error.message
-										: "写入验证失败，请重试。",
-								);
-							} finally {
-								button.setDisabled(false);
-							}
-						}),
-					);
-				},
-			},
-			{
-				name: "测试连接",
-				desc: "只检查地址、身份验证和目录，不读取笔记、不写入文件。",
-				aliases: ["test connection", "WebDAV"],
-				render: (setting) => {
-					this.connectionSetting = setting;
-					setting.addButton((button) =>
-						button.setButtonText("测试连接").onClick(async () => {
-							setting.setDesc("正在测试当前配置…");
-							button.setDisabled(true).setButtonText("正在测试…");
-							try {
-								setting.setDesc(await checkConnection(this.host));
-							} catch (error) {
-								setting.setDesc(
-									error instanceof Error
-										? error.message
-										: "连接失败，请检查设置。",
-								);
-							} finally {
-								button.setDisabled(false).setButtonText("测试连接");
-							}
-						}),
-					);
 				},
 			},
 		];

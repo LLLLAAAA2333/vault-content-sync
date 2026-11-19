@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { type ScanProgress, scan } from "@/sync/model";
 import { request, responseText, WebDavStore } from "@/sync/webdav";
+import { verifyWriteAccess } from "@/sync/write-probe";
 import { setup } from "./helpers";
 
 const servers: http.Server[] = [];
@@ -80,6 +81,47 @@ it("probes exactly the configured collection with Depth 0 and no file or state a
 	});
 	await new WebDavStore({ url: url.href }).testConnection();
 	expect(calls).toEqual([{ method: "PROPFIND", path: "/notes/", depth: "0" }]);
+});
+
+it("reports a second successful lock even if the server then fails both unlocks", async () => {
+	const methods: (string | undefined)[] = [];
+	const url = await serve((req, res) => {
+		methods.push(req.method);
+		req.resume();
+		switch (req.method) {
+			case "PROPFIND":
+				res.writeHead(207).end(xml());
+				break;
+			case "MKCOL":
+				res.writeHead(201).end();
+				break;
+			case "LOCK": {
+				const token = `urn:uuid:synthetic-${methods.length}`;
+				res
+					.writeHead(200, { "Lock-Token": token })
+					.end(
+						`<d:prop xmlns:d="DAV:"><d:lockdiscovery><d:activelock><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype><d:depth>infinity</d:depth><d:timeout>Second-600</d:timeout><d:locktoken><d:href>${token}</d:href></d:locktoken></d:activelock></d:lockdiscovery></d:prop>`,
+					);
+				break;
+			}
+			case "UNLOCK":
+				res.writeHead(409).end();
+				break;
+			default:
+				res.writeHead(500).end();
+		}
+	});
+	await expect(verifyWriteAccess({ url: url.href })).rejects.toThrow(
+		"服务器在已有独占目录锁时接受了第二次加锁",
+	);
+	expect(methods).toEqual([
+		"PROPFIND",
+		"MKCOL",
+		"LOCK",
+		"LOCK",
+		"UNLOCK",
+		"UNLOCK",
+	]);
 });
 it.each([
 	[401, "认证失败"],

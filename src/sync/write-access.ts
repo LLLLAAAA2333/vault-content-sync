@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { collectionUrl } from "./connection";
 
+export type WriteMode = "full" | "create-only";
+
 export interface WriteAccess {
 	readonly verifiedAt: number;
 }
-const grants = new WeakMap<WriteAccess, string>();
+const grants = new WeakMap<WriteAccess, { scope: string; mode: WriteMode }>();
 export function writeScope(options: {
 	url: string;
 	username?: string;
@@ -21,13 +23,20 @@ export function writeScope(options: {
 		.digest("hex");
 }
 /** Session-only capability. Serialized or copied objects never grant write access. */
-export function grantWriteAccess(scope: string): WriteAccess {
+export function grantWriteAccess(
+	scope: string,
+	mode: WriteMode = "full",
+): WriteAccess {
 	const access = Object.freeze({ verifiedAt: Date.now() });
-	grants.set(access, scope);
+	grants.set(access, { scope, mode });
 	return access;
 }
-export function permitsWrite(access: WriteAccess | undefined, scope: string) {
-	return !!access && grants.get(access) === scope;
+export function grantedWriteMode(
+	access: WriteAccess | undefined,
+	scope: string,
+) {
+	const grant = access && grants.get(access);
+	return grant?.scope === scope ? grant.mode : undefined;
 }
 export function revokeWriteAccess(access: WriteAccess | undefined) {
 	if (access) grants.delete(access);

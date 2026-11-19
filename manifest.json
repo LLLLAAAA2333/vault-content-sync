@@ -1,9 +1,9 @@
 {
 	"id": "vault-content-sync",
 	"name": "Vault Content Sync",
-	"version": "0.6.1",
+	"version": "0.6.4",
 	"minAppVersion": "1.14.4",
-	"description": "Compare notes and attachments with a WebDAV folder, review conflicts, and sync changes after verifying server write protection.",
+	"description": "Review, resolve, and commit note and attachment changes between Obsidian and a WebDAV folder.",
 	"author": "LLLLAAAA2333",
 	"authorUrl": "https://github.com/LLLLAAAA2333",
 	"isDesktopOnly": true

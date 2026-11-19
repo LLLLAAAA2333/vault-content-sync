@@ -1,5 +1,6 @@
 import { AuthenticationError } from "./auth";
 import { dictionary } from "./validation";
+import type { WriteMode } from "./write-access";
 export const META = ".plain-sync";
 export const PROBE_PREFIX = ".vault-content-sync-check-";
 export const EXCLUDED = [
@@ -36,12 +37,19 @@ export interface Row {
 	remote: Seen;
 	reason?: string;
 }
+export function isCreation(row: Row): boolean {
+	return (
+		(row.kind === "upload" && !!row.local && row.remote === null) ||
+		(row.kind === "download" && row.local === null && !!row.remote)
+	);
+}
 export interface Listing {
 	files: string[];
 	excluded: string[];
 	folders: string[];
 }
 export interface Store {
+	readonly writeMode?: WriteMode;
 	exclusive?<T>(task: () => Promise<T>): Promise<T>;
 	checkWriteLease?(): void;
 	readonly excludedRoots?: readonly string[];

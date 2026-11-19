@@ -16,8 +16,6 @@ import {
 } from "./sync/credentials";
 import { loadSettings } from "./sync/settings";
 import { VerificationCache } from "./sync/verification-cache";
-import { revokeWriteAccess, type WriteAccess } from "./sync/write-access";
-import { verifyWriteAccess } from "./sync/write-probe";
 import { COMPARISON_VIEW_TYPE, ComparisonView } from "./ui/comparison-view";
 export async function registerPlain(plugin: Plugin) {
 	const raw: unknown = await plugin.loadData();
@@ -25,8 +23,6 @@ export async function registerPlain(plugin: Plugin) {
 	let connectionGeneration = 0;
 	const verificationCache = new VerificationCache();
 	let cachedPassword: string | undefined;
-	let writeAccess: WriteAccess | undefined;
-	let verifyingWrites = false;
 	let saving: Promise<unknown> = Promise.resolve();
 	let pendingSettings = 0;
 	function enqueue<T>(task: () => Promise<T>) {
@@ -61,8 +57,6 @@ export async function registerPlain(plugin: Plugin) {
 			host.connectionChanged();
 		},
 		connectionChanged: () => {
-			revokeWriteAccess(writeAccess);
-			writeAccess = undefined;
 			verificationCache.clear();
 			cachedPassword = undefined;
 			connectionGeneration++;
@@ -118,65 +112,12 @@ export async function registerPlain(plugin: Plugin) {
 				cachedPassword = password;
 				const result = await host.engine().preview(onProgress, mode);
 				if (generation !== connectionGeneration || password !== host.password)
-					throw new AuthenticationError("连接或密码已改变，请重新核验。");
+					throw new AuthenticationError("连接或密码已改变，请刷新变更。");
 				return result;
 			} catch (error) {
 				verificationCache.clear();
 				cachedPassword = undefined;
 				throw error;
-			}
-		},
-		testConnection: () => {
-			ready();
-			return new WebDavStore({
-				url: host.settings.url,
-				username: host.settings.username,
-				password: host.password,
-			}).testConnection();
-		},
-		writeReady: () => {
-			if (pendingSettings || host.hasInvalidUrl) return false;
-			try {
-				return new WebDavStore({
-					url: settings.url,
-					username: settings.username,
-					password: host.password,
-					writeAccess,
-				}).writable;
-			} catch {
-				return false;
-			}
-		},
-		verifyWrites: async () => {
-			ready();
-			if (verifyingWrites) throw new Error("写入验证正在进行，请稍候。");
-			if (host.hasInvalidUrl) throw new Error("请先保存有效的 WebDAV 地址。");
-			host.connectionChanged();
-			const generation = connectionGeneration;
-			const options = {
-				url: settings.url,
-				username: settings.username,
-				password: host.password,
-			};
-			const current = () =>
-				generation === connectionGeneration &&
-				!host.hasInvalidUrl &&
-				options.url === settings.url &&
-				options.username === settings.username &&
-				options.password === host.password;
-			verifyingWrites = true;
-			try {
-				const result = await verifyWriteAccess(options, current);
-				if (!current()) {
-					revokeWriteAccess(result.access);
-					throw new AuthenticationError("连接已改变，请重新验证写入能力。");
-				}
-				writeAccess = result.access;
-				for (const leaf of plugin.app.workspace.getLeavesOfType(SYNC_VIEW_TYPE))
-					if (leaf.view instanceof PlainPreview) leaf.view.invalidatePreview();
-				return { directory: result.directory, checks: result.checks.length };
-			} finally {
-				verifyingWrites = false;
 			}
 		},
 		openPreview: async () => {
@@ -196,12 +137,19 @@ export async function registerPlain(plugin: Plugin) {
 			))
 				if (leaf.view instanceof ComparisonView) leaf.view.invalidate();
 		},
-		openComparison: async (row) => {
-			const request = ++comparisonGeneration;
+		openComparison: async (row, actions) => {
+			const request = comparisonGeneration;
 			const { url, username } = host.settings,
 				password = host.password;
+			const comparisons =
+				plugin.app.workspace.getLeavesOfType(COMPARISON_VIEW_TYPE);
 			const leaf =
-				plugin.app.workspace.getLeavesOfType(COMPARISON_VIEW_TYPE)[0] ??
+				comparisons.find(
+					({ view }) => view instanceof ComparisonView && view.shows(row.path),
+				) ??
+				comparisons.find(
+					({ view }) => view instanceof ComparisonView && !view.hasDraft,
+				) ??
 				plugin.app.workspace.getLeaf("tab");
 			await leaf.setViewState({ type: COMPARISON_VIEW_TYPE, active: true });
 			if (request !== comparisonGeneration) return;
@@ -217,6 +165,7 @@ export async function registerPlain(plugin: Plugin) {
 						username === host.settings.username &&
 						password === host.password &&
 						!host.hasInvalidUrl,
+					actions,
 				);
 		},
 		save: () => {
@@ -232,14 +181,20 @@ export async function registerPlain(plugin: Plugin) {
 			if (!(adapter instanceof FileSystemAdapter))
 				throw new Error("Desktop filesystem required");
 			const root = adapter.getBasePath();
+			const generation = connectionGeneration;
+			const password = host.password;
 			const excludedRoots = [normalizePath(plugin.app.vault.configDir)];
 			return new PlainEngine(
 				new LocalStore(root, excludedRoots),
 				new WebDavStore({
 					url: host.settings.url,
 					username: host.settings.username,
-					password: host.password,
-					writeAccess,
+					password,
+					commitAllowed: () =>
+						generation === connectionGeneration &&
+						pendingSettings === 0 &&
+						!host.hasInvalidUrl &&
+						host.password === password,
 					excludedRoots,
 				}),
 				root,
@@ -255,13 +210,6 @@ export async function registerPlain(plugin: Plugin) {
 		name: "查看文件变化",
 		callback: () => {
 			void host.openPreview();
-		},
-	});
-	plugin.addCommand({
-		id: "verify-full",
-		name: "完整核验所有文件",
-		callback: () => {
-			void host.openPreview().then((view) => view.refresh("full"));
 		},
 	});
 	plugin.addRibbonIcon(

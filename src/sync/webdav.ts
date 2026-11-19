@@ -9,7 +9,7 @@ import { collectionUrl, isLoopback } from "./connection";
 import { DavLock } from "./dav-lock";
 import { digest, smallText } from "./files";
 import { request, responseText } from "./http";
-import { permitsWrite, type WriteAccess, writeScope } from "./write-access";
+import { grantedWriteMode, type WriteAccess, writeScope } from "./write-access";
 
 export { request, responseText } from "./http";
 
@@ -27,6 +27,7 @@ export interface DavOptions {
 	password?: string;
 	isolatedMock?: boolean;
 	writeAccess?: WriteAccess;
+	commitAllowed?: () => boolean;
 	excludedRoots?: readonly string[];
 }
 export class WebDavStore implements Store {
@@ -39,10 +40,16 @@ export class WebDavStore implements Store {
 	private access?: WriteAccess;
 	private scope: string;
 	private lock?: DavLock;
+	private committing = false;
+	private readonly commitAllowed?: () => boolean;
+	get writeMode() {
+		if (this.disabled) return undefined;
+		return this.mock || this.commitAllowed?.()
+			? "full"
+			: grantedWriteMode(this.access, this.scope);
+	}
 	get writable() {
-		return (
-			!this.disabled && (this.mock || permitsWrite(this.access, this.scope))
-		);
+		return this.writeMode !== undefined;
 	}
 	set writable(value: boolean) {
 		if (value)
@@ -50,8 +57,8 @@ export class WebDavStore implements Store {
 		this.disabled = true;
 	}
 	checkWriteLease() {
-		if (!this.writable) throw new Error("写入验证已失效，请重新验证当前连接。");
-		if (this.mock) return;
+		if (!this.writable) throw new Error("WebDAV 连接已改变，请重新打开变更。");
+		if (this.mock || this.committing) return;
 		if (!this.lock) throw new Error("同步写入必须持有独占目录锁。");
 		this.lock.conditions();
 	}
@@ -59,7 +66,15 @@ export class WebDavStore implements Store {
 		if (!this.writable)
 			throw new Error("Write capability unknown; verify this connection first");
 		if (this.mock) return task();
-		if (this.lock) throw new Error("已有同步操作正在运行。");
+		if (this.lock || this.committing) throw new Error("已有同步操作正在运行。");
+		if (this.commitAllowed || this.writeMode === "create-only") {
+			this.committing = true;
+			try {
+				return await task();
+			} finally {
+				this.committing = false;
+			}
+		}
 		const lock = new DavLock(this.root, this.headers);
 		this.lock = lock;
 		try {
@@ -187,6 +202,7 @@ export class WebDavStore implements Store {
 			: {};
 		this.mock = options.isolatedMock === true && loopback;
 		this.access = options.writeAccess;
+		this.commitAllowed = options.commitAllowed;
 		this.scope = writeScope(options);
 	}
 	url(path: string) {
@@ -357,20 +373,22 @@ export class WebDavStore implements Store {
 			throw new Error(
 				"Remote writes disabled: atomic server guarantees not established",
 			);
+		if (
+			this.writeMode === "create-only" &&
+			(expected !== null || source === null)
+		)
+			throw new Error("当前连接仅允许新建缺失文件。");
 		const conditions = () => {
-			if (!this.writable)
-				throw new Error("写入验证已失效，请重新验证当前连接。");
-			if (this.mock) return {};
-			if (!this.lock) throw new Error("同步写入必须持有独占目录锁。");
-			return this.lock.conditions();
+			this.checkWriteLease();
+			return this.lock?.conditions() ?? {};
 		};
 		conditions();
 		if (excluded(path, this.excludedRoots)) throw new Error("Excluded target");
 		// Apache may briefly expose a weak validator immediately after a write.
-		// Wait under the exclusive lock; never promote a weak ETag ourselves.
+		// Recheck the bytes before accepting a fresh strong validator.
 		for (
 			let attempt = 0;
-			this.lock &&
+			(this.lock || this.commitAllowed) &&
 			expected &&
 			!/^"[^"\r\n]+"$/.test(expected.version) &&
 			attempt < 12;
@@ -386,7 +404,7 @@ export class WebDavStore implements Store {
 		if (expected && !/^"[^"\r\n]+"$/.test(expected.version))
 			throw new Error("Strong ETag required");
 		if (!source && !expected) return;
-		if (source) {
+		if (source && !expected) {
 			const parts = path.split("/");
 			for (let i = 1; i < parts.length; i++) {
 				const res = await this.call(

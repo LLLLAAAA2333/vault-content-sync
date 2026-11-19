@@ -12,7 +12,7 @@ Version 0.5.0 adds a **Test connection** action in settings, a compact source-co
 
 ## Development version 0.6.1
 
-The current development build supports real WebDAV upload, download, guarded deletion, explicit local/remote conflict choices, conservative merging and interrupted-operation recovery. The published 0.5.0 behavior described above is unchanged. Use **验证并开启同步** in the sidebar or settings: it creates a new excluded synthetic directory, checks exclusive collection locks, strong validators, conditional writes and interrupted uploads, then enables this connection for this session. It does not synchronize notes. Verification is revoked on restart or connection/credential changes. Unsupported servers remain preview-only; this is not universal WebDAV compatibility.
+In the current development build, refresh changes in the sidebar and open a conflict to review both versions. Choose the local or remote version, or edit a Markdown resolution before committing. Each commit retains the previous versions and uses file-level preconditions for WebDAV writes.
 
 The sidebar now uses a Zed-style arrangement: changes and tools above, a scrollable file area, and a pinned remote/status/sync footer. Verify content, inspect the plan, then confirm **同步全部** or a file's **同步此文件** action. Conflicts and unfinished operations are handled separately. No commit-message box or Git history is implied.
 
