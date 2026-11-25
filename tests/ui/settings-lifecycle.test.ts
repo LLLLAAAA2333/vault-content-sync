@@ -287,6 +287,7 @@ it("comparison 401 clears the caller sidebar plan and shows authentication failu
 			cmp.show(
 				row,
 				{
+					recordCompletedCommit: async () => false,
 					inspect: async () => {
 						throw new AuthenticationError();
 					},
@@ -410,6 +411,7 @@ it.each([false, true])(
 		const task = cmp.show(
 			{ path: "n.md", kind: "conflict", local: null, remote: null },
 			{
+				recordCompletedCommit: async () => false,
 				inspect: async () => {
 					await new Promise<void>((r) => {
 						release = r;
@@ -423,6 +425,7 @@ it.each([false, true])(
 			},
 		);
 		const result = task.catch((error) => error);
+		await vi.waitFor(() => expect(release).toBeDefined());
 		release();
 		const error = await result;
 		if (locked) expect(error).toBeInstanceOf(AuthenticationError);

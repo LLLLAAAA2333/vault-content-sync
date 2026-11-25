@@ -76,7 +76,7 @@ it("preserves BOM and mixed endings through engine output without whole-file con
 	);
 });
 
-it("rechecks raw updated-only edits before starting a merge", async () => {
+it("preserves the latest local updated field when shared content is unchanged", async () => {
 	const s = await setup();
 	const note = (time: string, body: string) =>
 		`---\nupdated: ${time}\n---\n${body}`;
@@ -85,15 +85,16 @@ it("rechecks raw updated-only edits before starting a merge", async () => {
 	await writeFile(join(s.a, "n.md"), note("A", "A\nb\n"));
 	s.server.put("n.md", "a\nB\n");
 	const row = (await s.A.preview()).rows[0]!;
-	const state = await s.A.journal.load(),
-		puts = s.server.counters.put;
 	await writeFile(join(s.a, "n.md"), note("new timestamp", "A\nb\n"));
-	await expect(s.A.resolve(row, "merge")).rejects.toThrow("changed");
-	expect(s.server.counters.put).toBe(puts);
-	expect(await s.A.journal.load()).toEqual(state);
+	await s.A.resolve(row, "merge");
+	expect(await readFile(join(s.a, "n.md"), "utf8")).toBe(
+		note("new timestamp", "A\nB\n"),
+	);
+	expect(s.server.files.get("n.md").body.toString()).toBe("A\nB\n");
+	expect((await s.A.journal.load()).pending).toEqual({});
 });
 
-it("rechecks after computing and archiving a merge before any destination mutation", async () => {
+it("leaves a durable intent and preserves a newer edit during checkpoint creation", async () => {
 	const s = await setup();
 	await writeFile(join(s.a, "n.md"), "a\nb\n");
 	await sync(s.A);
@@ -106,9 +107,11 @@ it("rechecks after computing and archiving a merge before any destination mutati
 		return save(state);
 	};
 	const remoteChange = vi.spyOn(s.A.remote, "change");
-	await expect(s.A.resolve(row, "merge")).rejects.toThrow("changed");
+	await expect(s.A.resolve(row, "merge")).rejects.toThrow("newer edit");
 	expect(remoteChange).not.toHaveBeenCalled();
-	expect((await s.A.journal.load()).pending).toEqual({});
+	expect((await s.A.journal.load()).pending["n.md"]).toMatchObject({
+		phase: "prepared",
+	});
 	expect(await readFile(join(s.a, "n.md"), "utf8")).toBe("late edit");
 });
 

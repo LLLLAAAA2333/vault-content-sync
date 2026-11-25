@@ -183,22 +183,11 @@ try {
 		await host.openPreview();
 	}, server.credentials);
 	const sidebar = page.locator(".ocs-sidebar");
-	await sidebar.getByText("仅预览", { exact: true }).waitFor();
-	await sidebar.getByRole("button", { name: "核验内容", exact: true }).click();
-	await sidebar
-		.getByText("待同步 2 · 冲突 1 · 未核实 0", { exact: true })
-		.waitFor();
+	await sidebar.getByRole("button", { name: "刷新变更", exact: true }).click();
+	await sidebar.getByText("待同步 2 · 冲突 1", { exact: true }).waitFor();
 	assert.equal((await readdir(vault)).includes(".plain-sync"), false);
 	await sidebar
-		.getByRole("button", { name: "验证并开启同步", exact: true })
-		.click();
-	await confirm("开始验证");
-	await sidebar
-		.getByText("可同步", { exact: true })
-		.waitFor({ timeout: 30_000 });
-	assert.equal((await readdir(vault)).includes(".plain-sync"), false);
-	await sidebar
-		.getByRole("button", { name: "同步全部（2）", exact: true })
+		.getByRole("button", { name: "提交变更（2）", exact: true })
 		.waitFor();
 	const bounds = await sidebar.evaluate((el) => {
 		const panel = el.getBoundingClientRect();
@@ -226,16 +215,16 @@ try {
 		document.body.classList.add("theme-light");
 	});
 	await sidebar
-		.getByRole("button", { name: "比较内容：共同笔记.md", exact: true })
+		.getByRole("button", { name: "处理冲突：共同笔记.md", exact: true })
 		.click();
 	await page.locator(".ocs-diff-table").waitFor();
 	await page.screenshot({ path: join(artifacts, "webdav-comparison.png") });
 	await sidebar
-		.getByRole("button", { name: "同步全部（2）", exact: true })
+		.getByRole("button", { name: "提交变更（2）", exact: true })
 		.click();
-	await confirm("执行同步");
+	await confirm("提交");
 	await sidebar
-		.getByText("待同步 0 · 冲突 1 · 未核实 0", { exact: true })
+		.getByText("待同步 0 · 冲突 1", { exact: true })
 		.waitFor({ timeout: 30_000 });
 	assert.equal(
 		await readFile(join(vault, "阅读清单.md"), "utf8"),
@@ -245,14 +234,8 @@ try {
 		await readFile(join(server.documentRoot, "旅行计划.md"), "utf8"),
 		"# 旅行计划\n\n本地新增的行程。\n",
 	);
-	await sidebar
-		.getByRole("button", { name: "文件操作：共同笔记.md", exact: true })
-		.click();
-	await page
-		.locator(".menu-item-title")
-		.getByText("采用远端", { exact: true })
-		.click();
-	await confirm("应用选择");
+	await page.getByRole("button", { name: "采用远端这段", exact: true }).click();
+	await page.getByRole("button", { name: "提交结果", exact: true }).click();
 	await sidebar
 		.getByText("两端内容一致", { exact: true })
 		.waitFor({ timeout: 30_000 });
@@ -287,18 +270,13 @@ try {
 		app.plugins.plugins["vault-content-sync"].host.password =
 			"wrong-synthetic-password";
 	});
-	await sidebar.getByText("仅预览", { exact: true }).waitFor();
-	assert.equal(
-		await page.evaluate(() =>
-			app.plugins.plugins["vault-content-sync"].host.writeReady(),
-		),
-		false,
-	);
+	await sidebar.getByRole("button", { name: "刷新变更", exact: true }).click();
+	await sidebar.getByText(/认证失败|身份验证失败/).waitFor();
 	assert.equal(
 		await sidebar
-			.getByRole("button", { name: "同步全部", exact: false })
-			.count(),
-		0,
+			.getByRole("button", { name: "提交变更", exact: true })
+			.isDisabled(),
+		true,
 	);
 	assert.deepEqual(errors, []);
 	await writeFile(
@@ -309,14 +287,14 @@ try {
 				service: "Apache mod_dav_fs with Basic authentication",
 				checks: [
 					"isolated vault/profile",
-					"real write verification UI",
+					"direct commits without a connection probe",
 					"no local state before explicit sync",
 					"pinned footer without overflow",
 					"upload and download",
 					"main-editor comparison",
-					"explicit remote conflict resolution",
+					"per-block conflict resolution and commit",
 					"empty/light/dark screenshots",
-					"credential change revokes write permission",
+					"invalid credentials clear the commit plan",
 				],
 				errors,
 				appearance,

@@ -508,6 +508,7 @@ export class PlainPreview extends ItemView {
 	private async work(task: () => Promise<void>) {
 		if (this.busy) return;
 		this.busy = true;
+		this.preview = undefined;
 		this.notice = "";
 		this.failure = "";
 		this.authenticationFailure = false;
