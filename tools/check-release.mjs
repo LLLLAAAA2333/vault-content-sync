@@ -29,6 +29,11 @@ assert.equal(manifest.isDesktopOnly, true, "This bundle requires Node.js APIs");
 assert.ok(
 	manifest.description.length <= 250 && manifest.description.endsWith("."),
 );
+assert.doesNotMatch(
+	manifest.description,
+	/\bobsidian\b/i,
+	"Community directory plugin descriptions must omit the word Obsidian",
+);
 const folder = `dist/${manifest.id}`;
 assert.equal(
 	await readFile(`${folder}/manifest.json`, "utf8"),
