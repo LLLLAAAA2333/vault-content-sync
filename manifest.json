@@ -1,7 +1,7 @@
 {
 	"id": "vault-content-sync",
 	"name": "Vault Content Sync",
-	"version": "0.6.5",
+	"version": "0.6.6",
 	"minAppVersion": "1.14.4",
 	"description": "Review, resolve, and commit note and attachment changes between your vault and a WebDAV folder.",
 	"author": "LLLLAAAA2333",
