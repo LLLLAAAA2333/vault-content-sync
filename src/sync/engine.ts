@@ -7,6 +7,7 @@ import { isMarkdown, sharedText } from "./content";
 import { digest, hashFile, textFile } from "./files";
 import { localVersion } from "./local-version";
 import {
+	excluded,
 	hashOf,
 	type Intent,
 	isCreation,
@@ -36,6 +37,12 @@ export class PlainEngine {
 		private readonly verificationCache = new VerificationCache(),
 	) {
 		this.journal = new Journal(root, `${local.identity}|${remote.identity}`);
+	}
+	isExcluded(path: string): boolean {
+		return (
+			excluded(path, this.local.excludedRoots) ||
+			excluded(path, this.remote.excludedRoots)
+		);
 	}
 	private requireWriteMode() {
 		if (!this.remote.writable)
@@ -119,6 +126,7 @@ export class PlainEngine {
 			for (const row of preview.rows) {
 				if (
 					["unknown", "excluded", "conflict"].includes(row.kind) ||
+					this.isExcluded(row.path) ||
 					(this.remote.writeMode === "create-only" && !isCreation(row)) ||
 					state.pending[row.path]
 				)
@@ -160,6 +168,7 @@ export class PlainEngine {
 		for (const intent of Object.values(state.pending)) {
 			if (
 				intent.blocked ||
+				this.isExcluded(intent.path) ||
 				(this.remote.writeMode === "create-only" &&
 					!this.createsFile(intent)) ||
 				(confirmed && confirmed.get(intent.path) !== intent.id)
@@ -175,6 +184,7 @@ export class PlainEngine {
 		}
 	}
 	async recordCompletedCommit(path: string): Promise<boolean> {
+		if (this.isExcluded(path)) return false;
 		if ((await this.journal.load()).pending[path]?.phase !== "local")
 			return false;
 		return this.journal.locked(async () => {
@@ -408,7 +418,7 @@ export class PlainEngine {
 		return null;
 	}
 	async inspect(row: Row) {
-		if (["excluded", "unknown"].includes(row.kind))
+		if (["excluded", "unknown"].includes(row.kind) || this.isExcluded(row.path))
 			throw new Error("Cannot inspect an unknown or excluded path");
 		const l = await this.local.read(row.path),
 			r = await this.remote.read(row.path);
@@ -435,6 +445,7 @@ export class PlainEngine {
 		this.requireWriteMode();
 		if (this.remote.writeMode === "create-only")
 			throw new Error("Conflict resolution requires full write access");
+		if (this.isExcluded(row.path)) throw new Error("Excluded target");
 		if (
 			row.kind !== "conflict" ||
 			(row.reason && row.reason !== "Unfinished operation requires recovery")

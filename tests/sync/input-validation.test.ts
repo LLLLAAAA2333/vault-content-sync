@@ -39,6 +39,7 @@ describe("untrusted persisted values", () => {
 			expect(loadSettings(raw)).toEqual({
 				url: "",
 				username: "",
+				excludedFolders: [],
 				passwordMode: "session",
 				secretName: "",
 				credentialScope: "",
@@ -48,12 +49,14 @@ describe("untrusted persisted values", () => {
 			loadSettings({
 				url: "https://dav.example.test/notes",
 				username: "user",
+				excludedFolders: [".alma", null, 123],
 				mock: true,
 				password: "discard",
 			}),
 		).toEqual({
 			url: "https://dav.example.test/notes/",
 			username: "user",
+			excludedFolders: [".alma"],
 			passwordMode: "session",
 			secretName: "",
 			credentialScope: "",

@@ -183,7 +183,10 @@ export async function registerPlain(plugin: Plugin) {
 			const root = adapter.getBasePath();
 			const generation = connectionGeneration;
 			const password = host.password;
-			const excludedRoots = [normalizePath(plugin.app.vault.configDir)];
+			const excludedRoots = [
+				normalizePath(plugin.app.vault.configDir),
+				...settings.excludedFolders,
+			];
 			return new PlainEngine(
 				new LocalStore(root, excludedRoots),
 				new WebDavStore({

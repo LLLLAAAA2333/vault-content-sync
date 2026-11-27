@@ -23,9 +23,20 @@ export async function absent(path: string) {
 	}
 }
 export async function syncDir(path: string) {
-	const h = await fs.open(path, "r");
+	// Windows FlushFileBuffers requires write access, which directory handles lack.
+	if (process.platform === "win32") return;
+	const h = await fs.open(path, constants.O_RDONLY | constants.O_DIRECTORY);
 	try {
 		await h.sync();
+	} catch (error) {
+		// Some filesystems do not implement directory fsync. Regular file flushes
+		// still must succeed before publishing versions, checkpoints or targets.
+		if (
+			!["EPERM", "EINVAL", "ENOSYS", "ENOTSUP", "EOPNOTSUPP"].some((code) =>
+				hasErrorCode(error, code),
+			)
+		)
+			throw error;
 	} finally {
 		await h.close();
 	}
@@ -293,7 +304,7 @@ export class LocalStore implements Store {
 			// Publish a new inode exclusively. Existing names, including newly created files, are never replaced.
 			const stage = `${displaced}.new-${randomUUID()}`;
 			await fs.copyFile(source, stage, constants.COPYFILE_EXCL);
-			const h = await fs.open(stage, "r");
+			const h = await fs.open(stage, "r+");
 			try {
 				await h.sync();
 			} finally {

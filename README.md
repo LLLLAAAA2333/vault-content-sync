@@ -38,6 +38,8 @@ The actual Obsidian configuration directory comes from `Vault.configDir` and is 
 
 Content checks omit only top-level Markdown `updated`, without reformatting other properties or text. In addition to the active configuration directory, exclusions are `.obsidian`, `.claudian`, `.git`, `.sync_state.json`, `.sync_trash`, `.DS_Store`, `.plain-sync`, `.trash` and symlinks.
 
+Use **排除同步文件夹** (Exclude folders from sync) in plugin settings to skip additional folders. Enter one vault-relative path per line, such as `.alma` or `Projects/Cache`, click **保存** (Save), then refresh. The selected folders and their contents are skipped locally and on WebDAV. Existing copies stay in place. Set the exclusions on each device where you want them to apply.
+
 Existing-file WebDAV changes require a strong ETag and a server that enforces conditional requests. YAML field-level merging, character-level merging, moved-block recognition, directory rename recognition and automatic history cleanup are unsupported.
 
 ## Development and verification

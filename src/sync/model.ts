@@ -218,6 +218,7 @@ export async function scan(
 	return result;
 }
 export function plan(state: State, local: Scan, remote: Scan): Preview {
+	const excludedRoots = [...new Set([...local.excluded, ...remote.excluded])];
 	const paths = new Set([
 		...Object.keys(state.baseline),
 		...Object.keys(state.pending),
@@ -232,6 +233,7 @@ export function plan(state: State, local: Scan, remote: Scan): Preview {
 		...Object.keys(remote.files),
 	]);
 	for (const path of [...paths, ...local.folders, ...remote.folders]) {
+		if (excluded(path, excludedRoots)) continue;
 		const parts = path.split("/");
 		for (let i = 1; i <= parts.length; i++) {
 			const prefix = parts.slice(0, i).join("/");
@@ -246,6 +248,8 @@ export function plan(state: State, local: Scan, remote: Scan): Preview {
 	const rows: Row[] = [...paths].sort().map((path) => {
 		const l = local.files[path] ?? null,
 			r = remote.files[path] ?? null;
+		if (excluded(path, excludedRoots))
+			return { path, local: l, remote: r, kind: "excluded" };
 		const parts = path.split("/");
 		const clash =
 			parts.some(
@@ -263,18 +267,15 @@ export function plan(state: State, local: Scan, remote: Scan): Preview {
 			) ||
 			local.folders.includes(path) ||
 			remote.folders.includes(path);
-		const isExcluded = excluded(path, [...local.excluded, ...remote.excluded]);
 		return {
 			path,
 			local: l,
 			remote: r,
-			kind: isExcluded
-				? "excluded"
-				: incomplete
-					? "unknown"
-					: clash || state.pending[path]
-						? "conflict"
-						: classify(state.baseline[path], l, r),
+			kind: incomplete
+				? "unknown"
+				: clash || state.pending[path]
+					? "conflict"
+					: classify(state.baseline[path], l, r),
 			reason: incomplete
 				? "Incomplete scan; no actions allowed"
 				: clash
@@ -286,7 +287,7 @@ export function plan(state: State, local: Scan, remote: Scan): Preview {
 							: undefined,
 		};
 	});
-	for (const path of new Set([...local.excluded, ...remote.excluded]))
+	for (const path of excludedRoots)
 		if (!paths.has(path))
 			rows.push({ path, kind: "excluded", local: null, remote: null });
 	return {

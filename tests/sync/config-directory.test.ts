@@ -1,12 +1,14 @@
+import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { PlainEngine } from "@/sync/engine";
 import { LocalStore } from "@/sync/files";
+import { parseExcludedFolders } from "@/sync/settings";
 import { WebDavStore } from "@/sync/webdav";
 import { setup, sync } from "./helpers";
 
-it.each([".custom-config", "settings/obsidian"])(
+it.each([".custom-config", "settings/obsidian", ".alma", "项目/缓存"])(
 	"excludes %s on both sides, including absent paths from an earlier baseline",
 	async (configDir) => {
 		const s = await setup();
@@ -57,6 +59,57 @@ it.each([".custom-config", "settings/obsidian"])(
 		expect(s.server.counters.put).toBe(before);
 	},
 );
+
+it.each(["/", "/absolute", "C:\\absolute", "../elsewhere", "a/../b", "a//b"])(
+	"rejects invalid folder exclusion %s",
+	(path) => {
+		expect(() => parseExcludedFolders(path)).toThrow("Unsafe relative path");
+	},
+);
+
+it("keeps excluded pending changes intact while syncing other paths", async () => {
+	const s = await setup();
+	const hidden = ".alma/state.md";
+	await mkdir(join(s.a, ".alma"));
+	await writeFile(join(s.a, hidden), "agent data");
+	s.server.hooks.beforeCommit = async () => {
+		throw new Error("interrupted");
+	};
+	await expect(sync(s.A)).rejects.toThrow();
+	const { pending } = await s.A.journal.load();
+	expect(pending[hidden]).toBeDefined();
+	s.server.hooks.beforeCommit = null;
+	await writeFile(join(s.a, "note.md"), "note content");
+	const before = await s.A.preview();
+	const excludedRoots = parseExcludedFolders(" .alma/\r\n 项目\\缓存\n.ALMA ");
+	expect(excludedRoots).toEqual([".alma", "项目/缓存"]);
+	const remote = new WebDavStore({
+		url: s.server.url,
+		isolatedMock: true,
+		excludedRoots,
+	});
+	const engine = new PlainEngine(
+		new LocalStore(s.a, excludedRoots),
+		remote,
+		s.a,
+	);
+	const requests = vi.spyOn(remote, "call");
+	await engine.recover();
+	const conflict = before.rows.find((row) => row.path === hidden);
+	assert(conflict?.kind === "conflict");
+	await expect(engine.inspect(conflict)).rejects.toThrow("excluded");
+	await expect(engine.resolve(conflict, "local")).rejects.toThrow("Excluded");
+	await engine.run(before);
+	expect((await engine.journal.load()).pending).toEqual(pending);
+	expect(s.server.files.get("note.md").body.toString()).toBe("note content");
+	expect(s.server.files.has(hidden)).toBe(false);
+	expect(requests.mock.calls.every(([path]) => !path.startsWith(".alma"))).toBe(
+		true,
+	);
+	await s.A.recover();
+	expect((await s.A.journal.load()).pending).toEqual({});
+	expect(s.server.files.get(hidden).body.toString()).toBe("agent data");
+});
 
 it("blocks direct reads, conflict inspection and mutations of excluded configuration before I/O", async () => {
 	const s = await setup();

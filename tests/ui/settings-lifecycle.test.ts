@@ -272,6 +272,22 @@ it("serializes credential and connection changes without binding an old password
 	expect(s.host.settings.url).toBe("https://other.test/");
 });
 
+it("persists folder exclusions across reload without rebinding saved credentials", async () => {
+	const s = await setup();
+	expect(s.host.settings.excludedFolders).toEqual([]);
+	s.host.password = "synthetic";
+	await s.host.rememberPassword(true);
+	const { credentialScope, secretName } = s.host.settings;
+	expect(await s.host.updateSettings({ excludedFolders: [".alma"] })).toBe(
+		false,
+	);
+	const reload = await s.restart();
+	expect(reload.settings.excludedFolders).toEqual([".alma"]);
+	expect(reload.settings.credentialScope).toBe(credentialScope);
+	expect(reload.settings.secretName).toBe(secretName);
+	expect(reload.password).toBe("synthetic");
+});
+
 type SidebarAccess = {
 	preview?: Preview;
 	failure: string;

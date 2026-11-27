@@ -19,7 +19,7 @@ import { credentialScope } from "../sync/credentials";
 
 import type { PlainEngine } from "../sync/engine";
 import type { Preview, Row, ScanProgress } from "../sync/model";
-import type { SyncSettings } from "../sync/settings";
+import { parseExcludedFolders, type SyncSettings } from "../sync/settings";
 import type { VerificationMode } from "../sync/verification-cache";
 import { modalHint, openConfirmModal } from "./modal";
 
@@ -31,7 +31,7 @@ export interface PlainHost {
 	clearCredentials(): void;
 	rememberPassword(enabled: boolean): Promise<void>;
 	updateSettings(
-		patch: Partial<Pick<SyncSettings, "url" | "username">>,
+		patch: Partial<Pick<SyncSettings, "url" | "username" | "excludedFolders">>,
 	): Promise<boolean>;
 	connectionChanged(): void;
 	preview(
@@ -534,7 +534,9 @@ export class PlainPreview extends ItemView {
 			const state = await engine.journal.load();
 			const confirmed = new Map(
 				Object.values(state.pending)
-					.filter((intent) => !intent.blocked)
+					.filter(
+						(intent) => !intent.blocked && !engine.isExcluded(intent.path),
+					)
 					.map((intent) => [intent.path, intent.id] as const),
 			);
 			const paths = [...confirmed.keys()];
@@ -869,6 +871,43 @@ export class PlainSettings extends PluginSettingTab {
 									).setDisabled(false);
 								}
 							});
+					});
+				},
+			},
+			{
+				name: "排除同步文件夹",
+				desc: "每行填写一个库内相对路径。两端都会跳过该文件夹及其内容。",
+				aliases: ["exclude", "ignore", "屏蔽", "忽略"],
+				render: (setting) => {
+					setting.addTextArea((field) => {
+						field
+							.setValue(this.host.settings.excludedFolders.join("\n"))
+							.setPlaceholder(".alma\n项目/缓存");
+						field.inputEl.rows = 3;
+						field.inputEl.setAttribute("aria-label", "排除同步文件夹");
+						setting.addButton((save) => {
+							save.setButtonText("保存").onClick(async () => {
+								let excludedFolders: string[];
+								try {
+									excludedFolders = parseExcludedFolders(field.getValue());
+								} catch {
+									setting.setDesc(
+										"路径无效。每行填写一个库内相对路径，如 .alma 或 项目/缓存。",
+									);
+									return;
+								}
+								save.setDisabled(true);
+								field.setDisabled(true);
+								await this.persist(
+									setting,
+									() => this.host.updateSettings({ excludedFolders }),
+									() => {
+										save.setDisabled(false);
+										field.setDisabled(false);
+									},
+								);
+							});
+						});
 					});
 				},
 			},

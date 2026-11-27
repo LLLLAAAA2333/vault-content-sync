@@ -33,6 +33,8 @@ Vault Content Sync 把本地笔记库与指定 WebDAV 目录进行完整内容�
 
 内容规则：仅忽略 Markdown 顶层 `updated`；不重新格式化正文或其他属性。排除实际 Obsidian 配置目录、`.obsidian`、`.claudian`、`.git`、`.sync_state.json`、`.sync_trash`、`.DS_Store`、`.plain-sync`、`.trash` 及符号链接。历史版本与恢复内容保存在 `.plain-sync`，不自动清理。
 
+在插件设置的「排除同步文件夹」中，每行填写一个库内相对路径，例如 `.alma` 或 `项目/缓存`。点击「保存」后刷新变更。本地和 WebDAV 都会跳过这些路径及其子目录，原有文件会留在各自的位置。规则保存在本机，请在需要排除同一文件夹的设备上分别设置。
+
 ## 开发与验证
 
 Node.js 24、pnpm 10：
